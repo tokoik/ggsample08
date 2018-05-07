@@ -27,6 +27,9 @@
     <ClCompile Include="shader.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
+    <ClCompile Include="ggsample08.cpp">
+      <Filter>ソース ファイル</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="gg.h">
@@ -35,15 +38,15 @@
     <ClInclude Include="shader.h">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
-    <ClInclude Include="Window.h">
+    <ClInclude Include="GgApplication.h">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <None Include="simple.vert">
+    <None Include="ggsample08.frag">
       <Filter>シェーダー ファイル</Filter>
     </None>
-    <None Include="simple.frag">
+    <None Include="ggsample08.vert">
       <Filter>シェーダー ファイル</Filter>
     </None>
   </ItemGroup>

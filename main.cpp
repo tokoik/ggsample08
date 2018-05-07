@@ -1,226 +1,38 @@
-// ƒEƒBƒ“ƒhƒEŠÖ˜A‚Ìˆ—
-#include "Window.h"
+ï»¿//
+// ãƒ¡ã‚¤ãƒ³ãƒ—ãƒ­ã‚°ãƒ©ãƒ 
+//
 
-// ƒVƒF[ƒ_[ŠÖ˜A‚Ìˆ—
-#include "shader.h"
+// ãƒ¡ãƒƒã‚»ãƒ¼ã‚¸ãƒœãƒƒã‚¯ã‚¹ã®è¡¨ç¤ºã®æº–å‚™
+#if defined(_WIN32)
+#  include <Windows.h>
+#  include <atlstr.h>  
+#endif
 
-// •W€ƒ‰ƒCƒuƒ‰ƒŠ
-#include <cmath>
-
-// ƒAƒjƒ[ƒVƒ‡ƒ“‚ÌüŠúi•bj
-const double cycle(5.0);
-
-// ‹…‚Ìƒf[ƒ^‚Ì•ªŠ„”
-const int slices(64);
-const int stacks(32);
-
-// ‹…‚Ìƒf[ƒ^‚Ì’¸“_”‚Æ–Ê”
-const int vertices((slices + 1) * (stacks + 1));
-const int faces(slices * stacks * 2);
+// ã‚¢ãƒ—ãƒªã‚±ãƒ¼ã‚·ãƒ§ãƒ³æœ¬ä½“
+#include "GgApplication.h"
 
 //
-// ‹…‚Ìƒf[ƒ^‚Ìì¬
+// ãƒ¡ã‚¤ãƒ³ãƒ—ãƒ­ã‚°ãƒ©ãƒ 
 //
-static void makeSphere(float radius, int slices, int stacks,
-  GLfloat (*pv)[3], GLfloat (*nv)[3], GLfloat (*tv)[2], GLuint (*f)[3])
+int main() try
 {
-  // ’¸“_‚ÌˆÊ’u‚ÆƒeƒNƒXƒ`ƒƒÀ•W‚ğ‹‚ß‚é
-  for (int k = 0, j = 0; j <= stacks; ++j)
-  {
-    const float t(static_cast<float>(j) / static_cast<float>(stacks));
-    const float ph(3.141593f * t);
-    const float y(cos(ph));
-    const float r(sin(ph));
+  // ã‚¢ãƒ—ãƒªã‚±ãƒ¼ã‚·ãƒ§ãƒ³æœ¬ä½“
+  GgApplication app;
 
-    for (int i = 0; i <= slices; ++i)
-    {
-      const float s(static_cast<float>(i) / static_cast<float>(slices));
-      const float th(-2.0f * 3.141593f * s);
-      const float x(r * cos(th));
-      const float z(r * sin(th));
-
-      // ’¸“_‚ÌÀ•W’l
-      pv[k][0] = x * radius;
-      pv[k][1] = y * radius;
-      pv[k][2] = z * radius;
-
-      // ’¸“_‚Ì–@üƒxƒNƒgƒ‹
-      nv[k][0] = x;
-      nv[k][1] = y;
-      nv[k][2] = z;
-
-      // ’¸“_‚ÌƒeƒNƒXƒ`ƒƒÀ•W’l
-      tv[k][0] = s;
-      tv[k][1] = t;
-
-      ++k;
-    }
-  }
-
-  // –Ê‚Ìw•W‚ğ‹‚ß‚é
-  for (int k = 0, j = 0; j < stacks; ++j)
-  {
-    for (int i = 0; i < slices; ++i)
-    {
-      const int count((slices + 1) * j + i);
-
-      // ã”¼•ª‚ÌOŠpŒ`
-      f[k][0] = count;
-      f[k][1] = count + slices + 2;
-      f[k][2] = count + 1;
-      ++k;
-
-      // ‰º”¼•ª‚ÌOŠpŒ`
-      f[k][0] = count;
-      f[k][1] = count + slices + 1;
-      f[k][2] = count + slices + 2;
-      ++k;
-    }
-  }
+  // ã‚¢ãƒ—ãƒªã‚±ãƒ¼ã‚·ãƒ§ãƒ³ã‚’å®Ÿè¡Œã™ã‚‹
+  app.run();
 }
-
-//
-// ƒƒCƒ“ƒvƒƒOƒ‰ƒ€
-//
-int main()
+catch (const std::exception &e)
 {
-  // ƒEƒBƒ“ƒhƒE‚ğì¬‚·‚é
-  Window window("ggsample08");
+  // ã‚¨ãƒ©ãƒ¼ãƒ¡ãƒƒã‚»ãƒ¼ã‚¸ã‚’è¡¨ç¤ºã™ã‚‹
+#if defined(_WIN32)
+  const CStringW message(e.what());
+  MessageBox(NULL, LPCWSTR(message), TEXT("ã‚²ãƒ¼ãƒ ã‚°ãƒ©ãƒ•ã‚£ãƒƒã‚¯ã‚¹ç‰¹è«–"), MB_OK | MB_ICONERROR);
+#else
+  std::cerr << e.what() << "\n\n[Type enter key] ";
+  std::cin.get();
+#endif
 
-  // ”wŒiF‚ğw’è‚·‚é
-  glClearColor(1.0f, 1.0f, 1.0f, 0.0f);
-
-  // ‰B–ÊÁ‹‚ğ—LŒø‚É‚·‚é
-  glEnable(GL_DEPTH_TEST);
-  glEnable(GL_CULL_FACE);
-
-  // ƒvƒƒOƒ‰ƒ€ƒIƒuƒWƒFƒNƒg‚Ìì¬
-  const GLuint program(loadProgram("simple.vert", "pv", "simple.frag", "fc"));
-
-  // in (attribute) •Ï”‚ÌƒCƒ“ƒfƒbƒNƒX‚ÌŒŸõiŒ©‚Â‚©‚ç‚È‚¯‚ê‚Î -1j
-  const GLint nvLoc(glGetAttribLocation(program, "nv"));
-  const GLint tvLoc(glGetAttribLocation(program, "tv"));
-
-  // uniform •Ï”‚ÌƒCƒ“ƒfƒbƒNƒX‚ÌŒŸõiŒ©‚Â‚©‚ç‚È‚¯‚ê‚Î -1j
-  const GLint mwLoc(glGetUniformLocation(program, "mw"));
-  const GLint mcLoc(glGetUniformLocation(program, "mc"));
-  const GLint mgLoc(glGetUniformLocation(program, "mg"));
-  const GLint dmapLoc(glGetUniformLocation(program, "dmap"));
-  const GLint smapLoc(glGetUniformLocation(program, "smap"));
-  const GLint nmapLoc(glGetUniformLocation(program, "nmap"));
-
-  // ƒrƒ…[•ÏŠ·s—ñ‚ğ mv ‚É‹‚ß‚é
-  const GgMatrix mv(ggLookat(0.0f, 0.0f, 5.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f));
-
-  // }Œ`ƒf[ƒ^‚Ìì¬
-  GLfloat pv[vertices][3];
-  GLfloat nv[vertices][3];
-  GLfloat tv[vertices][2];
-  GLuint face[faces][3];
-  makeSphere(1.0f, slices, stacks, pv, nv, tv, face);
-
-  // ’¸“_”z—ñƒIƒuƒWƒFƒNƒg‚Ìì¬
-  GLuint vao;
-  glGenVertexArrays(1, &vao);
-  glBindVertexArray(vao);
-
-  // ’¸“_ƒoƒbƒtƒ@ƒIƒuƒWƒFƒNƒg‚Ìì¬
-  GLuint vbo[4];
-  glGenBuffers(4, vbo);
-
-  // ’¸“_‚ÌÀ•W’l pv —p‚Ìƒoƒbƒtƒ@ƒIƒuƒWƒFƒNƒg
-  glBindBuffer(GL_ARRAY_BUFFER, vbo[0]);
-  glBufferData(GL_ARRAY_BUFFER, sizeof pv, pv, GL_STATIC_DRAW);
-
-  // Œ‹‡‚³‚ê‚Ä‚¢‚é’¸“_ƒoƒbƒtƒ@ƒIƒuƒWƒFƒNƒg‚ğ in •Ï” pv (index == 0) ‚©‚çQÆ‚Å‚«‚é‚æ‚¤‚É‚·‚é
-  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
-  glEnableVertexAttribArray(0);
-
-  // ’¸“_‚ÌF nv —p‚Ìƒoƒbƒtƒ@ƒIƒuƒWƒFƒNƒg
-  glBindBuffer(GL_ARRAY_BUFFER, vbo[1]);
-  glBufferData(GL_ARRAY_BUFFER, sizeof nv, nv, GL_STATIC_DRAW);
-
-  // Œ‹‡‚³‚ê‚Ä‚¢‚é’¸“_ƒoƒbƒtƒ@ƒIƒuƒWƒFƒNƒg‚ğ in •Ï” nv (index == nvLoc) ‚©‚çQÆ‚Å‚«‚é‚æ‚¤‚É‚·‚é
-  glVertexAttribPointer(nvLoc, 3, GL_FLOAT, GL_FALSE, 0, 0);
-  glEnableVertexAttribArray(nvLoc);
-
-  // ’¸“_‚ÌÀ•W’l tv —p‚Ìƒoƒbƒtƒ@ƒIƒuƒWƒFƒNƒg
-  glBindBuffer(GL_ARRAY_BUFFER, vbo[2]);
-  glBufferData(GL_ARRAY_BUFFER, sizeof tv, tv, GL_STATIC_DRAW);
-
-  // Œ‹‡‚³‚ê‚Ä‚¢‚é’¸“_ƒoƒbƒtƒ@ƒIƒuƒWƒFƒNƒg‚ğ in •Ï” tv (index == tvLoc) ‚©‚çQÆ‚Å‚«‚é‚æ‚¤‚É‚·‚é
-  glVertexAttribPointer(tvLoc, 2, GL_FLOAT, GL_FALSE, 0, 0);
-  glEnableVertexAttribArray(tvLoc);
-
-  // ’¸“_‚ÌƒCƒ“ƒfƒbƒNƒX face —p‚Ìƒoƒbƒtƒ@ƒIƒuƒWƒFƒNƒg
-  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vbo[3]);
-  glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof face, face, GL_STATIC_DRAW);
-
-  // ˆê‚Â–Ú‚ÌƒeƒNƒXƒ`ƒƒ (ŠgU”½ËŒW”ƒ}ƒbƒv)
-  const GLuint dmap(ggLoadImage("diffuse.tga"));
-
-  // “ñ‚Â–Ú‚ÌƒeƒNƒXƒ`ƒƒ (‹¾–Ê”½ËŒW”ƒ}ƒbƒv)
-  const GLuint smap(ggLoadImage("specular.tga"));
-
-  // O‚Â–Ú‚ÌƒeƒNƒXƒ`ƒƒ (–@üƒ}ƒbƒv)
-  const GLuint nmap(ggLoadHeight("height.tga", 5.0f));
-
-  // Œo‰ßŠÔ‚ÌƒŠƒZƒbƒg
-  glfwSetTime(0.0);
-
-  // ƒEƒBƒ“ƒhƒE‚ªŠJ‚¢‚Ä‚¢‚éŠÔŒJ‚è•Ô‚·
-  while (window.shouldClose() == GL_FALSE)
-  {
-    // ƒEƒBƒ“ƒhƒE‚ğÁ‹‚·‚é
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-    // ƒVƒF[ƒ_ƒvƒƒOƒ‰ƒ€‚Ìg—pŠJn
-    glUseProgram(program);
-
-    // ‚ÌŒv‘ª
-    const float t(static_cast<float>(fmod(glfwGetTime(), cycle) / cycle));
-
-    // ƒ‚ƒfƒ‹ƒrƒ…[•ÏŠ·s—ñ ( t ‚É‚à‚Æ‚Ã‚­‰ñ“]ƒAƒjƒ[ƒVƒ‡ƒ“)
-    const GgMatrix mw(mv.rotateY(12.56637f * t));
-
-    // –@ü•ÏŠ·s—ñ
-    const GgMatrix mg(mw.normal());
-
-    // “Š‰e•ÏŠ·s—ñ
-    const GgMatrix mp(ggPerspective(0.5f, window.getAspect(), 1.0f, 15.0f));
-
-    // ƒ‚ƒfƒ‹ƒrƒ…[E“Š‰e•ÏŠ·
-    const GgMatrix mc(mp * mw);
-
-    // uniform •Ï”‚ğİ’è‚·‚é
-    glUniformMatrix4fv(mwLoc, 1, GL_FALSE, mw.get());
-    glUniformMatrix4fv(mcLoc, 1, GL_FALSE, mc.get());
-    glUniformMatrix4fv(mgLoc, 1, GL_FALSE, mg.get());
-    glUniform1i(dmapLoc, 0);
-    glUniform1i(smapLoc, 1);
-    glUniform1i(nmapLoc, 2);
-
-    // ƒeƒNƒXƒ`ƒƒƒ†ƒjƒbƒg‚ÆƒeƒNƒXƒ`ƒƒ‚Ìw’è
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, dmap);
-    glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, smap);
-    glActiveTexture(GL_TEXTURE2);
-    glBindTexture(GL_TEXTURE_2D, nmap);
-
-    // •`‰æ‚Ég‚¤’¸“_”z—ñƒIƒuƒWƒFƒNƒg‚Ìw’è
-    glBindVertexArray(vao);
-
-    // }Œ`‚Ì•`‰æ
-    glDrawElements(GL_TRIANGLES, faces * 3, GL_UNSIGNED_INT, 0);
-
-    // ’¸“_”z—ñƒIƒuƒWƒFƒNƒg‚Ìw’è‰ğœ
-    glBindVertexArray(0);
-
-    // ƒVƒF[ƒ_ƒvƒƒOƒ‰ƒ€‚Ìg—pI—¹
-    glUseProgram(0);
-
-    // ƒJƒ‰[ƒoƒbƒtƒ@‚ğ“ü‚ê‘Ö‚¦‚ÄƒCƒxƒ“ƒg‚ğæ‚èo‚·
-    window.swapBuffers();
-  }
+  // ãƒ–ãƒ­ã‚°ãƒ©ãƒ ã‚’çµ‚äº†ã™ã‚‹
+  return EXIT_FAILURE;
 }

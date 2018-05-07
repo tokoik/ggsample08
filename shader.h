@@ -1,24 +1,24 @@
+ï»¿//
+// ãƒ—ãƒ­ã‚°ãƒ©ãƒ ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆã‚’ä½œæˆã™ã‚‹
 //
-// ƒvƒƒOƒ‰ƒ€ƒIƒuƒWƒFƒNƒg‚ðì¬‚·‚é
-//
-//   vsrc: ƒo[ƒeƒbƒNƒXƒVƒF[ƒ_‚Ìƒ\[ƒXƒvƒƒOƒ‰ƒ€‚Ì•¶Žš—ñ
-//   pv: ƒo[ƒeƒbƒNƒXƒVƒF[ƒ_‚Ìƒ\[ƒXƒvƒƒOƒ‰ƒ€’†‚Ì in •Ï”–¼‚Ì•¶Žš—ñ
-//   fsrc: ƒtƒ‰ƒOƒƒ“ƒgƒVƒF[ƒ_‚Ìƒ\[ƒXƒvƒƒOƒ‰ƒ€‚Ì•¶Žš—ñ
-//   fc: ƒtƒ‰ƒOƒƒ“ƒgƒVƒF[ƒ_‚Ìƒ\[ƒXƒvƒƒOƒ‰ƒ€’†‚Ì out •Ï”–¼‚Ì•¶Žš—ñ
-//   vert: ƒo[ƒeƒbƒNƒXƒVƒF[ƒ_‚ÌƒRƒ“ƒpƒCƒ‹Žž‚ÌƒƒbƒZ[ƒW‚É’Ç‰Á‚·‚é•¶Žš—ñ
-//   frag: ƒtƒ‰ƒOƒƒ“ƒgƒVƒF[ƒ_‚ÌƒRƒ“ƒpƒCƒ‹Žž‚ÌƒƒbƒZ[ƒW‚É’Ç‰Á‚·‚é•¶Žš—ñ
-//   –ß‚è’l: ƒvƒƒOƒ‰ƒ€ƒIƒuƒWƒFƒNƒg–¼
+//   vsrc: ãƒãƒ¼ãƒ†ãƒƒã‚¯ã‚¹ã‚·ã‚§ãƒ¼ãƒ€ã®ã‚½ãƒ¼ã‚¹ãƒ—ãƒ­ã‚°ãƒ©ãƒ ã®æ–‡å­—åˆ—
+//   pv: ãƒãƒ¼ãƒ†ãƒƒã‚¯ã‚¹ã‚·ã‚§ãƒ¼ãƒ€ã®ã‚½ãƒ¼ã‚¹ãƒ—ãƒ­ã‚°ãƒ©ãƒ ä¸­ã® in å¤‰æ•°åã®æ–‡å­—åˆ—
+//   fsrc: ãƒ•ãƒ©ã‚°ãƒ¡ãƒ³ãƒˆã‚·ã‚§ãƒ¼ãƒ€ã®ã‚½ãƒ¼ã‚¹ãƒ—ãƒ­ã‚°ãƒ©ãƒ ã®æ–‡å­—åˆ—
+//   fc: ãƒ•ãƒ©ã‚°ãƒ¡ãƒ³ãƒˆã‚·ã‚§ãƒ¼ãƒ€ã®ã‚½ãƒ¼ã‚¹ãƒ—ãƒ­ã‚°ãƒ©ãƒ ä¸­ã® out å¤‰æ•°åã®æ–‡å­—åˆ—
+//   vert: ãƒãƒ¼ãƒ†ãƒƒã‚¯ã‚¹ã‚·ã‚§ãƒ¼ãƒ€ã®ã‚³ãƒ³ãƒ‘ã‚¤ãƒ«æ™‚ã®ãƒ¡ãƒƒã‚»ãƒ¼ã‚¸ã«è¿½åŠ ã™ã‚‹æ–‡å­—åˆ—
+//   frag: ãƒ•ãƒ©ã‚°ãƒ¡ãƒ³ãƒˆã‚·ã‚§ãƒ¼ãƒ€ã®ã‚³ãƒ³ãƒ‘ã‚¤ãƒ«æ™‚ã®ãƒ¡ãƒƒã‚»ãƒ¼ã‚¸ã«è¿½åŠ ã™ã‚‹æ–‡å­—åˆ—
+//   æˆ»ã‚Šå€¤: ãƒ—ãƒ­ã‚°ãƒ©ãƒ ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆå
 //
 extern GLuint createProgram(const char *vsrc, const char *pv, const char *fsrc, const char *fc,
   const char *vert = "vertex shader", const char *frag = "fragment shader");
 
 //
-// ƒVƒF[ƒ_‚Ìƒ\[ƒXƒtƒ@ƒCƒ‹‚ð“Ç‚Ýž‚ñ‚ÅƒvƒƒOƒ‰ƒ€ƒIƒuƒWƒFƒNƒg‚ðì¬‚·‚é
+// ã‚·ã‚§ãƒ¼ãƒ€ã®ã‚½ãƒ¼ã‚¹ãƒ•ã‚¡ã‚¤ãƒ«ã‚’èª­ã¿è¾¼ã‚“ã§ãƒ—ãƒ­ã‚°ãƒ©ãƒ ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆã‚’ä½œæˆã™ã‚‹
 //
-//   vert: ƒo[ƒeƒbƒNƒXƒVƒF[ƒ_‚Ìƒ\[ƒXƒtƒ@ƒCƒ‹–¼
-//   pv: ƒo[ƒeƒbƒNƒXƒVƒF[ƒ_‚Ìƒ\[ƒXƒvƒƒOƒ‰ƒ€’†‚Ì in •Ï”–¼‚Ì•¶Žš—ñ
-//   frag: ƒtƒ‰ƒOƒƒ“ƒgƒVƒF[ƒ_‚Ìƒ\[ƒXƒtƒ@ƒCƒ‹–¼
-//   fc: ƒtƒ‰ƒOƒƒ“ƒgƒVƒF[ƒ_‚Ìƒ\[ƒXƒvƒƒOƒ‰ƒ€’†‚Ì out •Ï”–¼‚Ì•¶Žš—ñ
-//   –ß‚è’l: ƒvƒƒOƒ‰ƒ€ƒIƒuƒWƒFƒNƒg–¼
+//   vert: ãƒãƒ¼ãƒ†ãƒƒã‚¯ã‚¹ã‚·ã‚§ãƒ¼ãƒ€ã®ã‚½ãƒ¼ã‚¹ãƒ•ã‚¡ã‚¤ãƒ«å
+//   pv: ãƒãƒ¼ãƒ†ãƒƒã‚¯ã‚¹ã‚·ã‚§ãƒ¼ãƒ€ã®ã‚½ãƒ¼ã‚¹ãƒ—ãƒ­ã‚°ãƒ©ãƒ ä¸­ã® in å¤‰æ•°åã®æ–‡å­—åˆ—
+//   frag: ãƒ•ãƒ©ã‚°ãƒ¡ãƒ³ãƒˆã‚·ã‚§ãƒ¼ãƒ€ã®ã‚½ãƒ¼ã‚¹ãƒ•ã‚¡ã‚¤ãƒ«å
+//   fc: ãƒ•ãƒ©ã‚°ãƒ¡ãƒ³ãƒˆã‚·ã‚§ãƒ¼ãƒ€ã®ã‚½ãƒ¼ã‚¹ãƒ—ãƒ­ã‚°ãƒ©ãƒ ä¸­ã® out å¤‰æ•°åã®æ–‡å­—åˆ—
+//   æˆ»ã‚Šå€¤: ãƒ—ãƒ­ã‚°ãƒ©ãƒ ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆå
 //
 extern GLuint loadProgram(const char *vert, const char *pv, const char *frag, const char *fc);
