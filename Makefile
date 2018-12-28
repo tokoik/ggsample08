@@ -1,4 +1,4 @@
-TARGET	= ggsample08
+TARGET	= ggsample01
 SOURCES	= $(wildcard *.cpp)
 HEADERS	= $(wildcard *.h)
 OBJECTS	= $(patsubst %.cpp,%.o,$(SOURCES))
@@ -14,6 +14,6 @@ $(TARGET).dep: $(SOURCES) $(HEADERS)
 	$(CXX) $(CXXFLAGS) -MM $(SOURCES) > $@
 
 clean:
-	-$(RM) $(TARGET) *.o *~ .*~ a.out core
+	-$(RM) $(TARGET) *.o *~ .*~ *.bak *.dep a.out core
 
 -include $(TARGET).dep

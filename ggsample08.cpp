@@ -176,7 +176,7 @@ void GgApplication::run()
   glfwSetTime(0.0);
 
   // ウィンドウが開いている間繰り返す
-  while (window.shouldClose() == GL_FALSE)
+  while (window)
   {
     // ウィンドウを消去する
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
