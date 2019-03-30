@@ -1,4 +1,4 @@
-TARGET	= ggsample01
+TARGET	= ggsample08
 SOURCES	= $(wildcard *.cpp)
 HEADERS	= $(wildcard *.h)
 OBJECTS	= $(patsubst %.cpp,%.o,$(SOURCES))
