@@ -22,7 +22,7 @@
     <ProjectGuid>{90FD6DAA-9779-428C-B9A4-D8B42B9B0E8D}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>ggsample08</RootNamespace>
-    <WindowsTargetPlatformVersion>10.0.16299.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>10.0.18362.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -155,12 +155,19 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="gg.h" />
-    <ClInclude Include="GgApplication.h" />
+    <ClInclude Include="resource.h" />
+    <ClInclude Include="Window.h" />
     <ClInclude Include="shader.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="ggsample08.frag" />
     <None Include="ggsample08.vert" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="ggsample08.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="gg.ico" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

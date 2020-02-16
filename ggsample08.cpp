@@ -1,5 +1,5 @@
 ﻿// ウィンドウ関連の処理
-#include "GgApplication.h"
+#include "Window.h"
 
 // シェーダー関連の処理
 #include "shader.h"
@@ -82,7 +82,7 @@ static void makeSphere(float radius, int slices, int stacks,
 //
 // アプリケーションの実行
 //
-void GgApplication::run()
+void app()
 {
   // ウィンドウを作成する
   Window window("ggsample08");
