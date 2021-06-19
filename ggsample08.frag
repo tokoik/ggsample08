@@ -1,4 +1,4 @@
-#version 150 core
+#version 410 core
 
 // 光源
 const vec4 lamb   = vec4(0.2, 0.2, 0.2, 1.0);       // 環境光成分の強度
