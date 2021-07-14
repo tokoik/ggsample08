@@ -14,7 +14,7 @@ using namespace gg;
 //   str: コンパイルエラーが発生した場所を示す文字列
 //   戻り値: コンパイルに成功していたら GL_TRUE
 //
-static GLboolean printShaderInfoLog(GLuint shader, const char *str)
+static GLboolean printShaderInfoLog(GLuint shader, const char* str)
 {
   // コンパイル結果を取得する
   GLint status;
@@ -77,8 +77,8 @@ static GLboolean printProgramInfoLog(GLuint program)
 //   frag: フラグメントシェーダのコンパイル時のメッセージに追加する文字列
 //   戻り値: プログラムオブジェクト名
 //
-GLuint createProgram(const char *vsrc, const char *pv, const char *fsrc, const char *fc,
-  const char *vert, const char *frag)
+GLuint createProgram(const char* vsrc, const char* pv, const char* fsrc, const char* fc,
+  const char* vert, const char* frag)
 {
   // 空のプログラムオブジェクトを作成する
   const GLuint program(glCreateProgram());
@@ -129,10 +129,10 @@ GLuint createProgram(const char *vsrc, const char *pv, const char *fsrc, const c
 //   name: シェーダのソースファイル名
 //   戻り値: ソースファイルを読み込んだメモリのポインタ
 //
-static GLchar *readShaderSource(const char *name)
+static bool readShaderSource(const char* name, std::vector<GLchar>& src)
 {
-  // ファイル名が NULL なら NULL を返す
-  if (name == NULL) return NULL;
+  // ファイル名が NULL ならそのまま戻る
+  if (name == NULL) return true;
 
   // ソースファイルを開く
   std::ifstream file(name, std::ios::binary);
@@ -140,39 +140,32 @@ static GLchar *readShaderSource(const char *name)
   {
     // 開けなかった
     std::cerr << "Error: Can't open source file: " << name << std::endl;
-    return NULL;
+    return false;
   }
 
-  // ファイルの末尾に移動し現在位置（＝ファイルサイズ）を得る
+  // ファイルの末尾に移動する
   file.seekg(0L, std::ios::end);
-  GLsizei length(static_cast<GLsizei>(file.tellg()));
 
-  // ファイルサイズのメモリを確保
-  GLchar *buffer(new(std::nothrow) GLchar[length + 1]);
-  if (buffer == NULL)
-  {
-    // メモリが足らなかった
-    std::cerr << "Error: Too large file: " << name << std::endl;
-    file.close();
-    return NULL;
-  }
+  // ファイルサイズ (= ファイルの末尾の位置) + 1 文字のメモリを確保する
+  src.resize(static_cast<GLsizei>(file.tellg()) + 1);
 
   // ファイルを先頭から読み込む
   file.seekg(0L, std::ios::beg);
-  file.read(buffer, length);
-  buffer[length] = '\0';
+  file.read(src.data(), src.size());
+  src.push_back('\0');
 
+  // ファイルがうまく読み込めたかどうか確かめる
   if (file.bad())
   {
     // うまく読み込めなかった
     std::cerr << "Error: Could not read souce file: " << name << std::endl;
-    delete[] buffer;
-    buffer = NULL;
+    file.close();
+    return false;
   }
-  file.close();
 
-  // 読み込んだソースプログラム
-  return buffer;
+  // ファイルを閉じて戻る
+  file.close();
+  return true;
 }
 
 //
@@ -184,19 +177,16 @@ static GLchar *readShaderSource(const char *name)
 //   fc: フラグメントシェーダのソースプログラム中の out 変数名の文字列
 //   戻り値: プログラムオブジェクト名
 //
-GLuint loadProgram(const char *vert, const char *pv, const char *frag, const char *fc)
+GLuint loadProgram(const char* vert, const char* pv, const char* frag, const char* fc)
 {
   // シェーダのソースファイルを読み込む
-  const GLchar *vsrc(readShaderSource(vert));
-  const GLchar *fsrc(readShaderSource(frag));
+  std::vector<GLchar> vsrc, fsrc;
+  if (readShaderSource(vert, vsrc) && readShaderSource(frag, fsrc))
+  {
+    // プログラムオブジェクトを作成する
+    return createProgram(vsrc.data(), pv, fsrc.data(), fc);
+  }
 
-  // プログラムオブジェクトを作成する
-  const GLuint program(createProgram(vsrc, pv, fsrc, fc));
-
-  // 読み込みに使ったメモリを解放する
-  delete vsrc;
-  delete fsrc;
-
-  // 作成したプログラムオブジェクトを返す
-  return program;
+  // プログラムオブジェクト作成失敗
+  return 0;
 }

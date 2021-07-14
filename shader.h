@@ -9,8 +9,8 @@
 //   frag: フラグメントシェーダのコンパイル時のメッセージに追加する文字列
 //   戻り値: プログラムオブジェクト名
 //
-extern GLuint createProgram(const char *vsrc, const char *pv, const char *fsrc, const char *fc,
-  const char *vert = "vertex shader", const char *frag = "fragment shader");
+extern GLuint createProgram(const char* vsrc, const char* pv, const char* fsrc, const char* fc,
+  const char* vert = "vertex shader", const char* frag = "fragment shader");
 
 //
 // シェーダのソースファイルを読み込んでプログラムオブジェクトを作成する
@@ -21,4 +21,4 @@ extern GLuint createProgram(const char *vsrc, const char *pv, const char *fsrc, 
 //   fc: フラグメントシェーダのソースプログラム中の out 変数名の文字列
 //   戻り値: プログラムオブジェクト名
 //
-extern GLuint loadProgram(const char *vert, const char *pv, const char *frag, const char *fc);
+extern GLuint loadProgram(const char* vert, const char* pv, const char* frag, const char* fc);
