@@ -1,7 +1,7 @@
 ﻿#pragma once
 
 /*
-** ゲームグラフィックス特論の宿題用補助プログラム GLFW3 版
+** ゲームグラフィックス特論の宿題用ラッパークラス GLFW3 版
 **
 
 Copyright (c) 2011-2021 Kohe Tokoi. All Rights Reserved.
@@ -32,17 +32,6 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ** \date March 31, 2021
 */
 
-// 補助プログラム
-#include "gg.h"
-using namespace gg;
-
-// 標準ライブラリ
-#include <cmath>
-#include <cstdlib>
-#include <cassert>
-#include <stdexcept>
-#include <iostream>
-
 // Dear ImGui を使うなら
 //#define USE_IMGUI
 
@@ -54,6 +43,17 @@ constexpr int BUTTON_COUNT{ 3 };
 
 // 使用するユーザインタフェースの数
 constexpr int INTERFACE_COUNT{ 5 };
+
+// 補助プログラム
+#include "gg.h"
+using namespace gg;
+
+// 標準ライブラリ
+#include <cmath>
+#include <cstdlib>
+#include <cassert>
+#include <stdexcept>
+#include <iostream>
 
 // ImGui の組み込み
 #ifdef USE_IMGUI
@@ -162,10 +162,10 @@ class Window
   // ユーザー定義のコールバック関数へのポインタ
   //
   void* userPointer;
-  void(*resizeFunc)(const Window* window, int width, int height);
-  void(*keyboardFunc)(const Window* window, int key, int scancode, int action, int mods);
-  void(*mouseFunc)(const Window* window, int button, int action, int mods);
-  void(*wheelFunc)(const Window* window, double x, double y);
+  void (*resizeFunc)(const Window* window, int width, int height);
+  void (*keyboardFunc)(const Window* window, int key, int scancode, int action, int mods);
+  void (*mouseFunc)(const Window* window, int button, int action, int mods);
+  void (*wheelFunc)(const Window* window, double x, double y);
 
   //
   // ウィンドウのサイズ変更時の処理
@@ -1002,30 +1002,42 @@ public:
 
   //! \brief ユーザ定義の resize 関数を設定する.
   //!   \param func ユーザ定義の resize 関数, ウィンドウのサイズ変更時に呼び出される.
-  void setResizeFunc(void(*func)(const Window* window, int width, int height))
+  void setResizeFunc(void (*func)(const Window* window, int width, int height))
   {
     resizeFunc = func;
   }
 
   //! \brief ユーザ定義の keyboard 関数を設定する.
   //!   \param func ユーザ定義の keyboard 関数, キーボードの操作時に呼び出される.
-  void setKeyboardFunc(void(*func)(const Window* window, int key, int scancode, int action, int mods))
+  void setKeyboardFunc(void (*func)(const Window* window, int key, int scancode, int action, int mods))
   {
     keyboardFunc = func;
   }
 
   //! \brief ユーザ定義の mouse 関数を設定する.
   //!   \param func ユーザ定義の mouse 関数, マウスボタンの操作時に呼び出される.
-  void setMouseFunc(void(*func)(const Window* window, int button, int action, int mods))
+  void setMouseFunc(void (*func)(const Window* window, int button, int action, int mods))
   {
     mouseFunc = func;
   }
 
   //! \brief ユーザ定義の wheel 関数を設定する.
   //!   \param func ユーザ定義の wheel 関数, マウスホイールの操作時に呼び出される.
-  void setResizeFunc(void(*func)(const Window* window, double x, double y))
+  void setWheelFunc(void (*func)(const Window* window, double x, double y))
   {
     wheelFunc = func;
+  }
+
+  //! \brief 表示領域をメニューバーの高さだけ減らす.
+  //!   \param メニューバーの高さ
+  void setMenubarHeight(float menubarheight)
+  {
+    // メニューバーより下に描画する
+    int width, height;
+    glfwGetFramebufferSize(window, &width, &height);
+    height -= static_cast<int>(menubarheight);
+    glViewport(0, 0, width, height);
+    fboSize = std::array<GLsizei, 2>{ width, height };
   }
 };
 
