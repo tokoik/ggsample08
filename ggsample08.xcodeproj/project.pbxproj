@@ -21,16 +21,17 @@
 		7D1E90EE1123E36C005E6C75 /* ggsample08.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ggsample08.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7D1E90F11123E36C005E6C75 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		7D3AE1A920A09D49005799EC /* ggsample08.cpp */ = {isa = PBXFileReference; fileEncoding = 4; indentWidth = 2; lastKnownFileType = sourcecode.cpp.cpp; lineEnding = 0; path = ggsample08.cpp; sourceTree = "<group>"; tabWidth = 2; };
-		7D57105C23F8FCFD00856C4B /* Window.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = Window.h; sourceTree = "<group>"; };
+		7D57105C23F8FCFD00856C4B /* Window.h */ = {isa = PBXFileReference; indentWidth = 2; lastKnownFileType = sourcecode.c.h; lineEnding = 0; path = Window.h; sourceTree = "<group>"; tabWidth = 2; };
 		7D57105D23F8FD0300856C4B /* gg.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = gg.icns; sourceTree = "<group>"; };
-		7DB794FF176A061300A186D2 /* shader.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; lineEnding = 0; path = shader.cpp; sourceTree = "<group>"; };
-		7DB79500176A061400A186D2 /* shader.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; lineEnding = 0; path = shader.h; sourceTree = "<group>"; };
+		7DB794FF176A061300A186D2 /* shader.cpp */ = {isa = PBXFileReference; fileEncoding = 4; indentWidth = 2; lastKnownFileType = sourcecode.cpp.cpp; lineEnding = 0; path = shader.cpp; sourceTree = "<group>"; tabWidth = 2; };
+		7DB79500176A061400A186D2 /* shader.h */ = {isa = PBXFileReference; fileEncoding = 4; indentWidth = 2; lastKnownFileType = sourcecode.c.h; lineEnding = 0; path = shader.h; sourceTree = "<group>"; tabWidth = 2; };
 		7DC2D829150E260F007E9256 /* color.tga */ = {isa = PBXFileReference; lastKnownFileType = file; path = color.tga; sourceTree = "<group>"; };
-		7DC2D82A150E261F007E9256 /* gg.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; lineEnding = 0; path = gg.h; sourceTree = "<group>"; };
-		7DC2D82B150E2624007E9256 /* gg.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; lineEnding = 0; path = gg.cpp; sourceTree = "<group>"; };
-		7DC2D82E150E263E007E9256 /* main.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; lineEnding = 0; path = main.cpp; sourceTree = "<group>"; };
-		7DC2D835150E2665007E9256 /* ggsample08.frag */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.glsl; lineEnding = 0; path = ggsample08.frag; sourceTree = "<group>"; };
-		7DC2D836150E2665007E9256 /* ggsample08.vert */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.glsl; lineEnding = 0; path = ggsample08.vert; sourceTree = "<group>"; };
+		7DC2D82A150E261F007E9256 /* gg.h */ = {isa = PBXFileReference; fileEncoding = 4; indentWidth = 2; lastKnownFileType = sourcecode.c.h; lineEnding = 0; path = gg.h; sourceTree = "<group>"; tabWidth = 2; };
+		7DC2D82B150E2624007E9256 /* gg.cpp */ = {isa = PBXFileReference; fileEncoding = 4; indentWidth = 2; lastKnownFileType = sourcecode.cpp.cpp; lineEnding = 0; path = gg.cpp; sourceTree = "<group>"; tabWidth = 2; };
+		7DC2D82E150E263E007E9256 /* main.cpp */ = {isa = PBXFileReference; fileEncoding = 4; indentWidth = 2; lastKnownFileType = sourcecode.cpp.cpp; lineEnding = 0; path = main.cpp; sourceTree = "<group>"; tabWidth = 2; };
+		7DC2D835150E2665007E9256 /* ggsample08.frag */ = {isa = PBXFileReference; fileEncoding = 4; indentWidth = 2; lastKnownFileType = sourcecode.glsl; lineEnding = 0; path = ggsample08.frag; sourceTree = "<group>"; tabWidth = 2; };
+		7DC2D836150E2665007E9256 /* ggsample08.vert */ = {isa = PBXFileReference; fileEncoding = 4; indentWidth = 2; lastKnownFileType = sourcecode.glsl; lineEnding = 0; path = ggsample08.vert; sourceTree = "<group>"; tabWidth = 2; };
+		7DD627D626CA9EC800C0CA0F /* GgApp.h */ = {isa = PBXFileReference; fileEncoding = 4; indentWidth = 2; lastKnownFileType = sourcecode.c.h; lineEnding = 0; path = GgApp.h; sourceTree = "<group>"; tabWidth = 2; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -49,11 +50,12 @@
 			children = (
 				7D3AE1A920A09D49005799EC /* ggsample08.cpp */,
 				7DC2D82E150E263E007E9256 /* main.cpp */,
-				7D57105C23F8FCFD00856C4B /* Window.h */,
-				7DC2D82B150E2624007E9256 /* gg.cpp */,
-				7DC2D82A150E261F007E9256 /* gg.h */,
-				7DB794FF176A061300A186D2 /* shader.cpp */,
 				7DB79500176A061400A186D2 /* shader.h */,
+				7DB794FF176A061300A186D2 /* shader.cpp */,
+				7DD627D626CA9EC800C0CA0F /* GgApp.h */,
+				7D57105C23F8FCFD00856C4B /* Window.h */,
+				7DC2D82A150E261F007E9256 /* gg.h */,
+				7DC2D82B150E2624007E9256 /* gg.cpp */,
 				7DC2D836150E2665007E9256 /* ggsample08.vert */,
 				7DC2D835150E2665007E9256 /* ggsample08.frag */,
 				7DC2D829150E260F007E9256 /* color.tga */,
