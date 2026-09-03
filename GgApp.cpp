@@ -30,6 +30,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 /// @date July 27, 2025
 ///
 #include "GgApp.h"
+using namespace gg;
 
 //
 // GLFW のエラー表示
@@ -74,11 +75,6 @@ GgApp::GgApp(int major, int minor)
     }
 #endif
   }
-
-#if defined(GG_USE_OCULUS_RIFT)
-  // Oculus Rift では SRGB でレンダリングする
-  glfwWindowHint(GLFW_SRGB_CAPABLE, GL_TRUE);
-#endif
 
 #if defined(IMGUI_VERSION)
   // ImGui のバージョンをチェックする
@@ -346,21 +342,8 @@ void GgApp::Window::wheel(GLFWwindow* window, double x, double y)
 // Window クラスのコンストラクタ
 //
 GgApp::Window::Window(const std::string& title, int width, int height, int fullscreen, GLFWwindow* share) :
-  window{ nullptr },
   size{ width, height },
-  fboSize{ width, height },
-#if defined(IMGUI_VERSION)
-  menubarHeight{ 0 },
-#endif
-  aspect{ 1.0f },
-  velocity{ 1.0f, 1.0f, 0.1f },
-  status{ false },
-  interfaceNo{ 0 },
-  userPointer{ nullptr },
-  resizeFunc{ nullptr },
-  keyboardFunc{ nullptr },
-  mouseFunc{ nullptr },
-  wheelFunc{ nullptr }
+  fboSize{ width, height }
 {
   // ディスプレイの情報
   GLFWmonitor* monitor{ nullptr };
@@ -433,6 +416,59 @@ GgApp::Window::Window(const std::string& title, int width, int height, int fulls
     firstTime = false;
   }
 #endif
+}
+
+//
+// Window クラスのムーブコンストラクタ
+//
+GgApp::Window::Window(Window&& w) noexcept :
+  window{ w.window },
+  size{ w.size },
+  fboSize{ w.fboSize },
+  interfaceData{ std::move(w.interfaceData) },
+  interfaceNo{ w.interfaceNo },
+  userPointer{ w.userPointer },
+  resizeFunc{ w.resizeFunc },
+  keyboardFunc{ w.keyboardFunc },
+  mouseFunc{ w.mouseFunc },
+  wheelFunc{ w.wheelFunc }
+{
+  w.window = nullptr;
+  if (window)
+  {
+    glfwSetWindowUserPointer(window, this);
+  }
+}
+
+//
+// Window クラスのムーブ代入演算子
+//
+GgApp::Window& GgApp::Window::operator=(Window&& w) noexcept
+{
+  if (&w != this)
+  {
+    if (window)
+    {
+      glfwDestroyWindow(window);
+    }
+    window = w.window;
+    size = w.size;
+    fboSize = w.fboSize;
+    interfaceData = std::move(w.interfaceData);
+    interfaceNo = w.interfaceNo;
+    userPointer = w.userPointer;
+    resizeFunc = w.resizeFunc;
+    keyboardFunc = w.keyboardFunc;
+    mouseFunc = w.mouseFunc;
+    wheelFunc = w.wheelFunc;
+
+    w.window = nullptr;
+    if (window)
+    {
+      glfwSetWindowUserPointer(window, this);
+    }
+  }
+  return *this;
 }
 
 //
@@ -525,630 +561,1426 @@ void GgApp::Window::updateViewport()
   restoreViewport();
 }
 
-#if defined(GG_USE_OCULUS_RIFT)
-#  if OVR_PRODUCT_VERSION > 0
-//
-// グラフィックスカードのデフォルトの LUID を得る
-//
-ovrGraphicsLuid GgApp::Oculus::GetDefaultAdapterLuid()
+#if defined(GG_USE_OPENXR)
+
+namespace
 {
-  ovrGraphicsLuid luid = ovrGraphicsLuid();
-
-#    if defined(_WIN32)
-  IDXGIFactory* factory{ nullptr };
-
-  if (SUCCEEDED(CreateDXGIFactory(IID_PPV_ARGS(&factory))))
+  //
+  // OpenXR の関数の戻り値を文字列にする
+  //
+  std::string xrMessage(XrInstance instance, XrResult result, const std::string& message)
   {
-    IDXGIAdapter* adapter{ nullptr };
-
-    if (SUCCEEDED(factory->EnumAdapters(0, &adapter)))
+    char buffer[XR_MAX_RESULT_STRING_SIZE]{ '\0' };
+    if (instance == XR_NULL_HANDLE
+      || XR_FAILED(xrResultToString(instance, result, buffer))
+      || buffer[0] == '\0')
     {
-      DXGI_ADAPTER_DESC desc;
-
-      adapter->GetDesc(&desc);
-      memcpy(&luid, &desc.AdapterLuid, sizeof luid);
-      adapter->Release();
+      std::snprintf(buffer, sizeof buffer, "XrResult(%d)", static_cast<int>(result));
     }
-
-    factory->Release();
+    return message + ": " + buffer;
   }
-#    endif
 
-  return luid;
-}
+  //
+  // OpenXR の関数の戻り値を検査して, エラーなら例外を投げる
+  //
+  void xrCheck(XrInstance instance, XrResult result, const std::string& message)
+  {
+    if (XR_SUCCEEDED(result)) return;
+    throw std::runtime_error(xrMessage(instance, result, message));
+  }
 
-//
-// グラフィックスカードの LUID の比較
-//
-int GgApp::Oculus::Compare(const ovrGraphicsLuid& lhs, const ovrGraphicsLuid& rhs)
-{
-  return memcmp(&lhs, &rhs, sizeof(ovrGraphicsLuid));
+  //
+  // OpenXR の関数の戻り値を検査して, エラーなら標準エラー出力に報告する
+  //
+  bool xrWarn(XrInstance instance, XrResult result, const std::string& message)
+  {
+    if (XR_SUCCEEDED(result)) return true;
+    std::cerr << "OpenXR: " << xrMessage(instance, result, message) << '\n';
+    return false;
+  }
+
+  //
+  // 固定長の文字列に安全にコピーする
+  //
+  void xrCopyString(char* destination, size_t size, const char* source)
+  {
+    if (size == 0) return;
+    const auto length{ std::min(std::strlen(source), size - 1) };
+    std::memcpy(destination, source, length);
+    destination[length] = '\0';
+  }
 }
-#  endif
 
 //
 // コンストラクタ
 //
-GgApp::Oculus::Oculus() :
-  session{ nullptr },
-  oculusFbo{ 0 },
-  screen{ -1.0f, 1.0f, -1.0f, 1.0f, -1.0f, 1.0f, -1.0f, },
-  mirrorFbo{ 0 },
-  window{ nullptr },
-#  if OVR_PRODUCT_VERSION > 0
-  frameIndex{ 0LL },
-  oculusDepth{ 0 },
-  mirrorWidth{ 1280 },
-  mirrorHeight{ 640 },
-#  endif
-  mirrorTexture{ nullptr }
+GgApp::OpenXR::OpenXR()
 {
 }
 
 //
-// Oculus Rift のセッションを作成する
+// デストラクタ
 //
-GgApp::Oculus& GgApp::Oculus::initialize(const Window& window)
+GgApp::OpenXR::~OpenXR()
 {
-  // Oculus Rift のコンテキスト
-  static Oculus oculus;
+  // このオブジェクトは関数内 static なので, 破棄されるのは main() が
+  // 終了した後, すなわち OpenGL のコンテキストが失われた後である.
+  // したがってここでは OpenGL の資源には触れず, OpenXR のハンドルだけを
+  // 解放する (OpenGL の資源は terminate() で解放しておくこと).
+  destroyXr();
+}
 
-  // 既に Oculus Rift のセッションが作成されていたら参照を返す
-  if (oculus.session) return oculus;
+//
+// アクションシステムを初期化する
+//
+void GgApp::OpenXR::initActions()
+{
+  // アクションセットの作成
+  XrActionSetCreateInfo actionSetInfo{ XR_TYPE_ACTION_SET_CREATE_INFO };
+  xrCopyString(actionSetInfo.actionSetName, sizeof actionSetInfo.actionSetName, "gameplay");
+  xrCopyString(actionSetInfo.localizedActionSetName, sizeof actionSetInfo.localizedActionSetName, "Gameplay");
+  actionSetInfo.priority = 0;
+  xrCheck(instance, xrCreateActionSet(instance, &actionSetInfo, &actionSet),
+    "Can't create the OpenXR action set");
 
-  // 最初に呼び出したときだけ実行する
-  static bool firstTime{ true };
-  if (firstTime)
+  // サブアクションパスの取得
+  xrCheck(instance, xrStringToPath(instance, "/user/hand/left", &handSubactionPath[Hand::Left]),
+    "Can't convert the path of the left hand");
+  xrCheck(instance, xrStringToPath(instance, "/user/hand/right", &handSubactionPath[Hand::Right]),
+    "Can't convert the path of the right hand");
+
+  // アクション作成ヘルパー
+  auto createAction = [this](const char* name, const char* localizedName, XrActionType type, XrAction& action)
   {
-    // Oculus Rift (LibOVR) を初期化する
-    ovrInitParams initParams{ ovrInit_RequestVersion, OVR_MINOR_VERSION, NULL, 0, 0 };
-    if (OVR_FAILURE(ovr_Initialize(&initParams)))
-      throw std::runtime_error("Can't initialize LibOVR");
+    XrActionCreateInfo createInfo{ XR_TYPE_ACTION_CREATE_INFO };
+    xrCopyString(createInfo.actionName, sizeof createInfo.actionName, name);
+    xrCopyString(createInfo.localizedActionName, sizeof createInfo.localizedActionName, localizedName);
+    createInfo.actionType = type;
+    createInfo.countSubactionPaths = Hand::Count;
+    createInfo.subactionPaths = handSubactionPath;
+    xrCheck(instance, xrCreateAction(actionSet, &createInfo, &action),
+      std::string("Can't create the OpenXR action \"") + name + "\"");
+  };
 
-    // アプリケーションの終了時に LibOVR を終了する
-    atexit(ovr_Shutdown);
+  createAction("aim_pose", "Aim Pose", XR_ACTION_TYPE_POSE_INPUT, aimPoseAction);
+  createAction("grip_pose", "Grip Pose", XR_ACTION_TYPE_POSE_INPUT, gripPoseAction);
+  createAction("trigger", "Trigger", XR_ACTION_TYPE_FLOAT_INPUT, triggerAction);
+  createAction("grip", "Grip", XR_ACTION_TYPE_FLOAT_INPUT, gripAction);
+  createAction("thumbstick", "Thumbstick", XR_ACTION_TYPE_VECTOR2F_INPUT, thumbstickAction);
+  createAction("thumbstick_click", "Thumbstick Click", XR_ACTION_TYPE_BOOLEAN_INPUT, thumbstickClickAction);
+  createAction("primary_button", "Primary Button", XR_ACTION_TYPE_BOOLEAN_INPUT, primaryButtonAction);
+  createAction("secondary_button", "Secondary Button", XR_ACTION_TYPE_BOOLEAN_INPUT, secondaryButtonAction);
+  createAction("menu_button", "Menu Button", XR_ACTION_TYPE_BOOLEAN_INPUT, menuButtonAction);
+  createAction("haptic", "Haptic Vibration", XR_ACTION_TYPE_VIBRATION_OUTPUT, hapticAction);
 
-    // 実行済みであることを記録する
-    firstTime = false;
+  // バインディング設定ヘルパー (対応していない対話プロファイルは読み飛ばす)
+  auto suggestBindings = [this](const char* profileStr, const std::vector<std::pair<XrAction, const char*>>& bindings)
+  {
+    XrPath profilePath{ XR_NULL_PATH };
+    if (XR_FAILED(xrStringToPath(instance, profileStr, &profilePath))) return;
+
+    std::vector<XrActionSuggestedBinding> suggestedBindings;
+    suggestedBindings.reserve(bindings.size());
+    for (const auto& [action, pathStr] : bindings)
+    {
+      XrPath path{ XR_NULL_PATH };
+      if (XR_FAILED(xrStringToPath(instance, pathStr, &path))) continue;
+      suggestedBindings.push_back(XrActionSuggestedBinding{ action, path });
+    }
+    if (suggestedBindings.empty()) return;
+
+    XrInteractionProfileSuggestedBinding profileSuggestedBindings{ XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING };
+    profileSuggestedBindings.interactionProfile = profilePath;
+    profileSuggestedBindings.suggestedBindings = suggestedBindings.data();
+    profileSuggestedBindings.countSuggestedBindings = static_cast<uint32_t>(suggestedBindings.size());
+    xrWarn(instance, xrSuggestInteractionProfileBindings(instance, &profileSuggestedBindings),
+      std::string("Can't suggest the bindings for ") + profileStr);
+  };
+
+  // Simple Controller のバインディング (すべてのランタイムが対応する最小限のもの)
+  suggestBindings("/interaction_profiles/khr/simple_controller", {
+    { aimPoseAction, "/user/hand/left/input/aim/pose" },
+    { aimPoseAction, "/user/hand/right/input/aim/pose" },
+    { gripPoseAction, "/user/hand/left/input/grip/pose" },
+    { gripPoseAction, "/user/hand/right/input/grip/pose" },
+    { triggerAction, "/user/hand/left/input/select/click" },
+    { triggerAction, "/user/hand/right/input/select/click" },
+    { menuButtonAction, "/user/hand/left/input/menu/click" },
+    { menuButtonAction, "/user/hand/right/input/menu/click" },
+    { hapticAction, "/user/hand/left/output/haptic" },
+    { hapticAction, "/user/hand/right/output/haptic" }
+  });
+
+  // Meta (Oculus) Touch コントローラーのバインディング
+  suggestBindings("/interaction_profiles/oculus/touch_controller", {
+    { aimPoseAction, "/user/hand/left/input/aim/pose" },
+    { aimPoseAction, "/user/hand/right/input/aim/pose" },
+    { gripPoseAction, "/user/hand/left/input/grip/pose" },
+    { gripPoseAction, "/user/hand/right/input/grip/pose" },
+    { triggerAction, "/user/hand/left/input/trigger/value" },
+    { triggerAction, "/user/hand/right/input/trigger/value" },
+    { gripAction, "/user/hand/left/input/squeeze/value" },
+    { gripAction, "/user/hand/right/input/squeeze/value" },
+    { thumbstickAction, "/user/hand/left/input/thumbstick" },
+    { thumbstickAction, "/user/hand/right/input/thumbstick" },
+    { thumbstickClickAction, "/user/hand/left/input/thumbstick/click" },
+    { thumbstickClickAction, "/user/hand/right/input/thumbstick/click" },
+    { primaryButtonAction, "/user/hand/left/input/x/click" },
+    { primaryButtonAction, "/user/hand/right/input/a/click" },
+    { secondaryButtonAction, "/user/hand/left/input/y/click" },
+    { secondaryButtonAction, "/user/hand/right/input/b/click" },
+    { menuButtonAction, "/user/hand/left/input/menu/click" },
+    { hapticAction, "/user/hand/left/output/haptic" },
+    { hapticAction, "/user/hand/right/output/haptic" }
+  });
+
+  // HTC Vive コントローラーのバインディング
+  suggestBindings("/interaction_profiles/htc/vive_controller", {
+    { aimPoseAction, "/user/hand/left/input/aim/pose" },
+    { aimPoseAction, "/user/hand/right/input/aim/pose" },
+    { gripPoseAction, "/user/hand/left/input/grip/pose" },
+    { gripPoseAction, "/user/hand/right/input/grip/pose" },
+    { triggerAction, "/user/hand/left/input/trigger/value" },
+    { triggerAction, "/user/hand/right/input/trigger/value" },
+    { gripAction, "/user/hand/left/input/squeeze/click" },
+    { gripAction, "/user/hand/right/input/squeeze/click" },
+    { thumbstickAction, "/user/hand/left/input/trackpad" },
+    { thumbstickAction, "/user/hand/right/input/trackpad" },
+    { thumbstickClickAction, "/user/hand/left/input/trackpad/click" },
+    { thumbstickClickAction, "/user/hand/right/input/trackpad/click" },
+    { menuButtonAction, "/user/hand/left/input/menu/click" },
+    { menuButtonAction, "/user/hand/right/input/menu/click" },
+    { hapticAction, "/user/hand/left/output/haptic" },
+    { hapticAction, "/user/hand/right/output/haptic" }
+  });
+
+  // Valve Index コントローラーのバインディング
+  suggestBindings("/interaction_profiles/valve/index_controller", {
+    { aimPoseAction, "/user/hand/left/input/aim/pose" },
+    { aimPoseAction, "/user/hand/right/input/aim/pose" },
+    { gripPoseAction, "/user/hand/left/input/grip/pose" },
+    { gripPoseAction, "/user/hand/right/input/grip/pose" },
+    { triggerAction, "/user/hand/left/input/trigger/value" },
+    { triggerAction, "/user/hand/right/input/trigger/value" },
+    { gripAction, "/user/hand/left/input/squeeze/value" },
+    { gripAction, "/user/hand/right/input/squeeze/value" },
+    { thumbstickAction, "/user/hand/left/input/thumbstick" },
+    { thumbstickAction, "/user/hand/right/input/thumbstick" },
+    { thumbstickClickAction, "/user/hand/left/input/thumbstick/click" },
+    { thumbstickClickAction, "/user/hand/right/input/thumbstick/click" },
+    { primaryButtonAction, "/user/hand/left/input/a/click" },
+    { primaryButtonAction, "/user/hand/right/input/a/click" },
+    { secondaryButtonAction, "/user/hand/left/input/b/click" },
+    { secondaryButtonAction, "/user/hand/right/input/b/click" },
+    { hapticAction, "/user/hand/left/output/haptic" },
+    { hapticAction, "/user/hand/right/output/haptic" }
+  });
+
+  // Microsoft Mixed Reality モーションコントローラーのバインディング
+  suggestBindings("/interaction_profiles/microsoft/motion_controller", {
+    { aimPoseAction, "/user/hand/left/input/aim/pose" },
+    { aimPoseAction, "/user/hand/right/input/aim/pose" },
+    { gripPoseAction, "/user/hand/left/input/grip/pose" },
+    { gripPoseAction, "/user/hand/right/input/grip/pose" },
+    { triggerAction, "/user/hand/left/input/trigger/value" },
+    { triggerAction, "/user/hand/right/input/trigger/value" },
+    { gripAction, "/user/hand/left/input/squeeze/click" },
+    { gripAction, "/user/hand/right/input/squeeze/click" },
+    { thumbstickAction, "/user/hand/left/input/thumbstick" },
+    { thumbstickAction, "/user/hand/right/input/thumbstick" },
+    { thumbstickClickAction, "/user/hand/left/input/thumbstick/click" },
+    { thumbstickClickAction, "/user/hand/right/input/thumbstick/click" },
+    { menuButtonAction, "/user/hand/left/input/menu/click" },
+    { menuButtonAction, "/user/hand/right/input/menu/click" },
+    { hapticAction, "/user/hand/left/output/haptic" },
+    { hapticAction, "/user/hand/right/output/haptic" }
+  });
+
+  // セッションにアクションセットをアタッチする (これ以降はバインディングを追加できない)
+  XrSessionActionSetsAttachInfo attachInfo{ XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO };
+  attachInfo.countActionSets = 1;
+  attachInfo.actionSets = &actionSet;
+  xrCheck(instance, xrAttachSessionActionSets(session, &attachInfo),
+    "Can't attach the OpenXR action set to the session");
+
+  // アクションスペースの作成
+  for (int i = 0; i < Hand::Count; ++i)
+  {
+    XrActionSpaceCreateInfo spaceInfo{ XR_TYPE_ACTION_SPACE_CREATE_INFO };
+    spaceInfo.poseInActionSpace.orientation.w = 1.0f;
+    spaceInfo.subactionPath = handSubactionPath[i];
+
+    spaceInfo.action = aimPoseAction;
+    xrCheck(instance, xrCreateActionSpace(session, &spaceInfo, &aimSpace[i]),
+      "Can't create the OpenXR action space for the aim pose");
+
+    spaceInfo.action = gripPoseAction;
+    xrCheck(instance, xrCreateActionSpace(session, &spaceInfo, &gripSpace[i]),
+      "Can't create the OpenXR action space for the grip pose");
+  }
+}
+
+//
+// アクション状態を更新する
+//
+void GgApp::OpenXR::pollActions()
+{
+  // 入力を受け付けていなければコントローラーの状態を無効にする
+  if (!isSessionRunning || actionSet == XR_NULL_HANDLE || sessionState != XR_SESSION_STATE_FOCUSED)
+  {
+    for (auto& state : controllerStates) state = ControllerState{};
+    return;
   }
 
-  // Oculus Rift のセッションを作成する
-  ovrGraphicsLuid luid;
-  if (OVR_FAILURE(ovr_Create(&oculus.session, &luid)))
-    throw std::runtime_error("Can't create Oculus Rift session");
+  XrActiveActionSet activeActionSet{ actionSet, XR_NULL_PATH };
+  XrActionsSyncInfo syncInfo{ XR_TYPE_ACTIONS_SYNC_INFO };
+  syncInfo.countActiveActionSets = 1;
+  syncInfo.activeActionSets = &activeActionSet;
+  if (!xrWarn(instance, xrSyncActions(session, &syncInfo),
+    "Can't synchronize the OpenXR actions")) return;
 
-#  if OVR_PRODUCT_VERSION > 0
-  // デフォルトのグラフィックスアダプタが使われているか確かめる
-  if (Compare(luid, GetDefaultAdapterLuid()))
-    throw std::runtime_error("Graphics adapter is not default");
-#  endif
-
-  // session が無効ならエラー
-  if (!oculus.session) std::runtime_error("Unable to use the Oculus Rift.");
-
-  // ミラー表示を行うウィンドウを設定する
-  oculus.window = &window;
-
-  // Oculus Rift の情報を取り出す
-  oculus.hmdDesc = ovr_GetHmdDesc(oculus.session);
-
-#  if defined(_DEBUG)
-  // Oculus Rift の情報を表示する
-  std::cerr
-    << "\nProduct name: " << oculus.hmdDesc.ProductName
-    << "\nResolution:   " << oculus.hmdDesc.Resolution.w << " x " << oculus.hmdDesc.Resolution.h
-    << "\nDefault Fov:  (" << oculus.hmdDesc.DefaultEyeFov[ovrEye_Left].LeftTan
-    << "," << oculus.hmdDesc.DefaultEyeFov[ovrEye_Left].DownTan
-    << ") - (" << oculus.hmdDesc.DefaultEyeFov[ovrEye_Left].RightTan
-    << "," << oculus.hmdDesc.DefaultEyeFov[ovrEye_Left].UpTan
-    << ")\n              (" << oculus.hmdDesc.DefaultEyeFov[ovrEye_Right].LeftTan
-    << "," << oculus.hmdDesc.DefaultEyeFov[ovrEye_Right].DownTan
-    << ") - (" << oculus.hmdDesc.DefaultEyeFov[ovrEye_Right].RightTan
-    << "," << oculus.hmdDesc.DefaultEyeFov[ovrEye_Right].UpTan
-    << ")\nMaximum Fov:  (" << oculus.hmdDesc.MaxEyeFov[ovrEye_Left].LeftTan
-    << "," << oculus.hmdDesc.MaxEyeFov[ovrEye_Left].DownTan
-    << ") - (" << oculus.hmdDesc.MaxEyeFov[ovrEye_Left].RightTan
-    << "," << oculus.hmdDesc.MaxEyeFov[ovrEye_Left].UpTan
-    << ")\n              (" << oculus.hmdDesc.MaxEyeFov[ovrEye_Right].LeftTan
-    << "," << oculus.hmdDesc.MaxEyeFov[ovrEye_Right].DownTan
-    << ") - (" << oculus.hmdDesc.MaxEyeFov[ovrEye_Right].RightTan
-    << "," << oculus.hmdDesc.MaxEyeFov[ovrEye_Right].UpTan
-    << ")\n" << std::endl;
-#  endif
-
-  // Oculus Rift に転送する描画データを作成する
-#  if OVR_PRODUCT_VERSION > 0
-  oculus.layerData.Header.Type = ovrLayerType_EyeFov;
-#  else
-  oculus.layerData.Header.Type = ovrLayerType_EyeFovDepth;
-#  endif
-
-  // OpenGL なので左下が原点
-  oculus.layerData.Header.Flags = ovrLayerFlag_TextureOriginAtBottomLeft;
-
-  // Oculus Rift のレンダリングに使う FBO を作成する
-  glGenFramebuffers(ovrEye_Count, oculus.oculusFbo);
-
-  // 全ての目について
-  for (int eye = 0; eye < ovrEye_Count; ++eye)
+  // 空間の姿勢を取り出すヘルパー (位置と向きの両方が有効なときだけ更新する)
+  auto locate = [this](XrSpace space, XrPosef& pose)
   {
-    // Oculus Rift の視野を取得する
-    const auto& fov{ oculus.hmdDesc.DefaultEyeFov[ovrEyeType(eye)] };
+    if (space == XR_NULL_HANDLE) return false;
 
-    // Oculus Rift 用の FBO のサイズを求める
-    const auto textureSize{ ovr_GetFovTextureSize(oculus.session, ovrEyeType(eye), fov, 1.0f) };
+    XrSpaceLocation location{ XR_TYPE_SPACE_LOCATION };
+    if (XR_FAILED(xrLocateSpace(space, appSpace, frameState.predictedDisplayTime, &location)))
+      return false;
 
-    // Oculus Rift のスクリーンのサイズを保存する
-    oculus.screen[eye][0] = -fov.LeftTan;
-    oculus.screen[eye][1] = fov.RightTan;
-    oculus.screen[eye][2] = -fov.DownTan;
-    oculus.screen[eye][3] = fov.UpTan;
-
-#  if OVR_PRODUCT_VERSION > 0
-
-    // 描画データに視野を設定する
-    oculus.layerData.Fov[eye] = fov;
-
-    // 描画データにビューポートを設定する
-    oculus.layerData.Viewport[eye].Pos = OVR::Vector2i(0, 0);
-    oculus.layerData.Viewport[eye].Size = textureSize;
-
-    // Oculus Rift 用の FBO のカラーバッファとして使うテクスチャセットの特性
-    const ovrTextureSwapChainDesc colorDesc
+    constexpr XrSpaceLocationFlags valid
     {
-      ovrTexture_2D,                    // Type
-      OVR_FORMAT_R8G8B8A8_UNORM_SRGB,   // Format
-      1,                                // ArraySize
-      textureSize.w,                    // Width
-      textureSize.h,                    // Height
-      1,                                // MipLevels
-      1,                                // SampleCount
-      ovrFalse,                         // StaticImage
-      0, 0
+      XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT
+    };
+    if ((location.locationFlags & valid) != valid) return false;
+
+    pose = location.pose;
+    return true;
+  };
+
+  for (int i = 0; i < Hand::Count; ++i)
+  {
+    auto& state = controllerStates[i];
+    const XrPath subaction = handSubactionPath[i];
+
+    XrActionStateGetInfo getInfo{ XR_TYPE_ACTION_STATE_GET_INFO };
+    getInfo.subactionPath = subaction;
+
+    // グリップポーズの取得
+    XrActionStatePose gripPoseState{ XR_TYPE_ACTION_STATE_POSE };
+    getInfo.action = gripPoseAction;
+    const bool gripActive
+    {
+      XR_SUCCEEDED(xrGetActionStatePose(session, &getInfo, &gripPoseState))
+        && gripPoseState.isActive != XR_FALSE
     };
 
-    // Oculus Rift 用の FBO のレンダーターゲットとして使うテクスチャチェインを作成する
-    oculus.layerData.ColorTexture[eye] = nullptr;
-    if (OVR_SUCCESS(ovr_CreateTextureSwapChainGL(oculus.session, &colorDesc, &oculus.layerData.ColorTexture[eye])))
+    // エイムポーズの取得
+    XrActionStatePose aimPoseState{ XR_TYPE_ACTION_STATE_POSE };
+    getInfo.action = aimPoseAction;
+    const bool aimActive
     {
-      // 作成したテクスチャチェインの長さを取得する
-      int length(0);
-      if (OVR_SUCCESS(ovr_GetTextureSwapChainLength(oculus.session, oculus.layerData.ColorTexture[eye], &length)))
+      XR_SUCCEEDED(xrGetActionStatePose(session, &getInfo, &aimPoseState))
+        && aimPoseState.isActive != XR_FALSE
+    };
+
+    // どちらかの姿勢が有効ならコントローラーが接続されている
+    state.isTracked = gripActive || aimActive;
+    if (gripActive) locate(gripSpace[i], state.gripPose);
+    if (aimActive) locate(aimSpace[i], state.aimPose);
+
+    // 連続値のアクションを取り出すヘルパー
+    auto getFloat = [this, &getInfo](XrAction action, float& value)
+    {
+      getInfo.action = action;
+      XrActionStateFloat floatState{ XR_TYPE_ACTION_STATE_FLOAT };
+      value = XR_SUCCEEDED(xrGetActionStateFloat(session, &getInfo, &floatState))
+        && floatState.isActive != XR_FALSE ? floatState.currentState : 0.0f;
+    };
+
+    // 論理値のアクションを取り出すヘルパー
+    auto getBoolean = [this, &getInfo](XrAction action, bool& value)
+    {
+      getInfo.action = action;
+      XrActionStateBoolean booleanState{ XR_TYPE_ACTION_STATE_BOOLEAN };
+      value = XR_SUCCEEDED(xrGetActionStateBoolean(session, &getInfo, &booleanState))
+        && booleanState.isActive != XR_FALSE && booleanState.currentState != XR_FALSE;
+    };
+
+    // トリガーとグリップ
+    getFloat(triggerAction, state.trigger);
+    getFloat(gripAction, state.grip);
+
+    // スティック
+    getInfo.action = thumbstickAction;
+    XrActionStateVector2f thumbstickState{ XR_TYPE_ACTION_STATE_VECTOR2F };
+    if (XR_SUCCEEDED(xrGetActionStateVector2f(session, &getInfo, &thumbstickState))
+      && thumbstickState.isActive != XR_FALSE)
+      state.thumbstick = { thumbstickState.currentState.x, thumbstickState.currentState.y };
+    else
+      state.thumbstick = { 0.0f, 0.0f };
+
+    // ボタン
+    getBoolean(thumbstickClickAction, state.thumbstickClick);
+    getBoolean(primaryButtonAction, state.primaryButton);
+    getBoolean(secondaryButtonAction, state.secondaryButton);
+    getBoolean(menuButtonAction, state.menuButton);
+  }
+}
+
+//
+// OpenXR のイベントを処理する
+//
+void GgApp::OpenXR::pollEvents()
+{
+  XrEventDataBuffer eventData{ XR_TYPE_EVENT_DATA_BUFFER };
+
+  while (xrPollEvent(instance, &eventData) == XR_SUCCESS)
+  {
+    switch (eventData.type)
+    {
+    case XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING:
+
+      // OpenXR のインスタンスが失われるのでアプリケーションを終了する
+      isSessionRunning = false;
+      if (window) window->setClose(GLFW_TRUE);
+      break;
+
+    case XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED:
+    {
+      const auto* stateChanged{ reinterpret_cast<const XrEventDataSessionStateChanged*>(&eventData) };
+      sessionState = stateChanged->state;
+
+      switch (sessionState)
       {
-        // テクスチャチェインの個々の要素について
-        for (int i = 0; i < length; ++i)
-        {
-          // テクスチャのパラメータを設定する
-          GLuint texId{ 0 };
-          ovr_GetTextureSwapChainBufferGL(oculus.session, oculus.layerData.ColorTexture[eye], i, &texId);
-          glBindTexture(GL_TEXTURE_2D, texId);
-          glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-          glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-          glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-          glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        }
+      case XR_SESSION_STATE_READY:
+      {
+        // セッションを開始する
+        XrSessionBeginInfo beginInfo{ XR_TYPE_SESSION_BEGIN_INFO };
+        beginInfo.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+        if (xrWarn(instance, xrBeginSession(session, &beginInfo),
+          "Can't begin the OpenXR session")) isSessionRunning = true;
+        break;
       }
 
-      // Oculus Rift 用の FBO のデプスバッファとして使うテクスチャを作成する
-      glGenTextures(1, oculus.oculusDepth + eye);
-      glBindTexture(GL_TEXTURE_2D, oculus.oculusDepth[eye]);
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, textureSize.w, textureSize.h, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+      case XR_SESSION_STATE_STOPPING:
+
+        // セッションを終了する
+        isSessionRunning = false;
+        frameBegun = false;
+        xrWarn(instance, xrEndSession(session), "Can't end the OpenXR session");
+        break;
+
+      case XR_SESSION_STATE_EXITING:
+      case XR_SESSION_STATE_LOSS_PENDING:
+
+        // アプリケーションを終了する
+        isSessionRunning = false;
+        if (window) window->setClose(GLFW_TRUE);
+        break;
+
+      default:
+        break;
+      }
+      break;
     }
 
-#  else
+    default:
+      break;
+    }
 
-    // 描画データに視野を設定する
-    oculus.layerData.EyeFov.Fov[eye] = fov;
-
-    // 描画データにビューポートを設定する
-    oculus.layerData.EyeFov.Viewport[eye].Pos = OVR::Vector2i(0, 0);
-    oculus.layerData.EyeFov.Viewport[eye].Size = textureSize;
-
-    // Oculus Rift 用の FBO のカラーバッファとして使うテクスチャセットを作成する
-    ovrSwapTextureSet* colorTexture{ nullptr };
-    ovr_CreateSwapTextureSetGL(oculus.session, GL_SRGB8_ALPHA8, textureSize.w, textureSize.h, &colorTexture);
-    oculus.layerData.EyeFov.ColorTexture[eye] = colorTexture;
-
-    // Oculus Rift 用の FBO のデプスバッファとして使うテクスチャセットを作成する
-    ovrSwapTextureSet* depthTexture{ nullptr };
-    ovr_CreateSwapTextureSetGL(oculus.session, GL_DEPTH_COMPONENT32F, textureSize.w, textureSize.h, &depthTexture);
-    oculus.layerData.EyeFovDepth.DepthTexture[eye] = depthTexture;
-
-    // Oculus Rift のレンズ補正等の設定値を取得する
-    oculus.eyeRenderDesc[eye] = ovr_GetRenderDesc(oculus.session, ovrEyeType(eye), fov);
-
-#  endif
+    // 次のイベントを取り出す準備をする
+    eventData = XrEventDataBuffer{ XR_TYPE_EVENT_DATA_BUFFER };
   }
+}
 
-#  if OVR_PRODUCT_VERSION > 0
+//
+// スワップチェーンを作成する
+//
+void GgApp::OpenXR::createSwapchains()
+{
+  // ビュー構成を取得する
+  uint32_t viewCount{ 0 };
+  xrCheck(instance, xrEnumerateViewConfigurationViews(instance, systemId,
+    XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, 0, &viewCount, nullptr),
+    "Can't count the OpenXR view configuration views");
+  views.assign(viewCount, XrViewConfigurationView{ XR_TYPE_VIEW_CONFIGURATION_VIEW });
+  xrCheck(instance, xrEnumerateViewConfigurationViews(instance, systemId,
+    XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, viewCount, &viewCount, views.data()),
+    "Can't enumerate the OpenXR view configuration views");
+  if (viewCount == 0) throw std::runtime_error("The OpenXR system has no view");
 
-  // 姿勢のトラッキングにおける床の高さを 0 に設定する
-  ovr_SetTrackingOriginType(oculus.session, ovrTrackingOrigin_FloorLevel);
+  viewStates.assign(viewCount, XrView{ XR_TYPE_VIEW });
+  currentImageIndex.assign(viewCount, 0);
+  imageAcquired.assign(viewCount, false);
 
-  // ミラー表示用の FBO を作成する
-  const GLsizei* size{ oculus.window->getSize() };
-  const ovrMirrorTextureDesc mirrorDesc
+  // 環境の合成方法を取得する (最初のものが最も推奨される)
+  uint32_t blendModeCount{ 0 };
+  if (XR_SUCCEEDED(xrEnumerateEnvironmentBlendModes(instance, systemId,
+    XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, 0, &blendModeCount, nullptr))
+    && blendModeCount > 0)
   {
-    OVR_FORMAT_R8G8B8A8_UNORM_SRGB, // Format
-    oculus.mirrorWidth = size[0],   // Width
-    oculus.mirrorHeight = size[1],  // Height
-    0                               // Flags
-  };
-
-  // ミラー表示用の FBO のカラーバッファとして使うテクスチャを作成する
-  if (OVR_SUCCESS(ovr_CreateMirrorTextureGL(oculus.session, &mirrorDesc, &oculus.mirrorTexture)))
-  {
-    // 作成したテクスチャのテクスチャ名を得る
-    GLuint texId{ 0 };
-    if (OVR_SUCCESS(ovr_GetMirrorTextureBufferGL(oculus.session, oculus.mirrorTexture, &texId)))
+    std::vector<XrEnvironmentBlendMode> blendModes(blendModeCount);
+    if (XR_SUCCEEDED(xrEnumerateEnvironmentBlendModes(instance, systemId,
+      XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, blendModeCount,
+      &blendModeCount, blendModes.data())))
     {
-      // ミラー表示用の FBO を作成してテクスチャをカラーバッファとして組み込む
-      glGenFramebuffers(1, &oculus.mirrorFbo);
-      glBindFramebuffer(GL_READ_FRAMEBUFFER, oculus.mirrorFbo);
-      glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texId, 0);
-      glFramebufferRenderbuffer(GL_READ_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, 0);
-      glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+      blendMode = blendModes[0];
     }
   }
 
-#  else
+  // 利用可能なスワップチェーンのカラーフォーマットを取得する
+  uint32_t formatCount{ 0 };
+  xrCheck(instance, xrEnumerateSwapchainFormats(session, 0, &formatCount, nullptr),
+    "Can't count the OpenXR swapchain formats");
+  std::vector<int64_t> formats(formatCount);
+  xrCheck(instance, xrEnumerateSwapchainFormats(session, formatCount, &formatCount, formats.data()),
+    "Can't enumerate the OpenXR swapchain formats");
+  if (formats.empty()) throw std::runtime_error("The OpenXR runtime has no swapchain format");
 
-  // 作成したテクスチャのテクスチャ名を得る
-  if (OVR_SUCCESS(ovr_CreateMirrorTextureGL(oculus.session, GL_SRGB8_ALPHA8, width, height, reinterpret_cast<ovrTexture**>(&mirrorTexture))))
+  // 使用したいカラーフォーマットの候補 (前にあるものを優先する)
+  static const int64_t preferred[]{ GL_SRGB8_ALPHA8, GL_SRGB8, GL_RGBA8, GL_RGB10_A2 };
+
+  // 利用可能なカラーフォーマットの中から使用するものを選ぶ
+  int64_t format{ formats[0] };
+  for (const auto candidate : preferred)
   {
-    // ミラー表示用の FBO を作成してテクスチャをカラーバッファとして組み込む
-    oculus.mirrorFbo = 0;
-    glGenFramebuffers(1, &oculus.mirrorFbo);
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, oculus.mirrorFbo);
-    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mirrorTexture->OGL.TexId, 0);
-    glFramebufferRenderbuffer(GL_READ_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, 0);
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    if (std::find(formats.begin(), formats.end(), candidate) != formats.end())
+    {
+      format = candidate;
+      break;
+    }
   }
 
-#  endif
+  // sRGB のフォーマットならリニア色空間で描画してガンマ補正をランタイムに任せる
+  swapchainIsSrgb = format == GL_SRGB8_ALPHA8 || format == GL_SRGB8;
 
-  // Oculus Rift にレンダリングするときは sRGB カラースペースを使う
-  glEnable(GL_FRAMEBUFFER_SRGB);
+  // ビューの数だけ FBO とデプスバッファを作成する
+  openxrFbo.assign(viewCount, 0);
+  openxrDepth.assign(viewCount, 0);
+  glGenFramebuffers(static_cast<GLsizei>(viewCount), openxrFbo.data());
+  glGenRenderbuffers(static_cast<GLsizei>(viewCount), openxrDepth.data());
 
-  // フロントバッファに描く
-  glDrawBuffer(GL_FRONT);
+  for (uint32_t i = 0; i < viewCount; ++i)
+  {
+    // スワップチェーンを作成する
+    XrSwapchainCreateInfo swapchainCreateInfo{ XR_TYPE_SWAPCHAIN_CREATE_INFO };
+    swapchainCreateInfo.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT
+      | XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
+    swapchainCreateInfo.format = format;
+    swapchainCreateInfo.sampleCount = 1;
+    swapchainCreateInfo.width = views[i].recommendedImageRectWidth;
+    swapchainCreateInfo.height = views[i].recommendedImageRectHeight;
+    swapchainCreateInfo.faceCount = 1;
+    swapchainCreateInfo.arraySize = 1;
+    swapchainCreateInfo.mipCount = 1;
 
-  // Oculus Rift への表示では垂直同期タイミングに合わせない
+    XrSwapchain swapchain{ XR_NULL_HANDLE };
+    xrCheck(instance, xrCreateSwapchain(session, &swapchainCreateInfo, &swapchain),
+      "Can't create the OpenXR swapchain");
+    swapchains.push_back(swapchain);
+
+    // スワップチェーンのイメージを取得する
+    uint32_t imageCount{ 0 };
+    xrCheck(instance, xrEnumerateSwapchainImages(swapchain, 0, &imageCount, nullptr),
+      "Can't count the OpenXR swapchain images");
+    std::vector<XrSwapchainImageOpenGLKHR> images(imageCount,
+      XrSwapchainImageOpenGLKHR{ XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_KHR });
+    xrCheck(instance, xrEnumerateSwapchainImages(swapchain, imageCount, &imageCount,
+      reinterpret_cast<XrSwapchainImageBaseHeader*>(images.data())),
+      "Can't enumerate the OpenXR swapchain images");
+    swapchainImages.push_back(std::move(images));
+
+    // 隠面消去処理に使うデプスバッファを作成する
+    glBindRenderbuffer(GL_RENDERBUFFER, openxrDepth[i]);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8,
+      static_cast<GLsizei>(swapchainCreateInfo.width),
+      static_cast<GLsizei>(swapchainCreateInfo.height));
+    glBindRenderbuffer(GL_RENDERBUFFER, 0);
+
+    // FBO にデプスバッファを取り付けておく (カラーバッファは select() で取り付ける)
+    glBindFramebuffer(GL_FRAMEBUFFER, openxrFbo[i]);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
+      GL_RENDERBUFFER, openxrDepth[i]);
+  }
+
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+//
+// OpenXR のセッションを作成する
+//
+GgApp::OpenXR& GgApp::OpenXR::initialize(const Window& window,
+  XrReferenceSpaceType spaceType, const char* appName)
+{
+  static OpenXR openxr;
+
+  // 初期化済みならそのまま返す
+  if (openxr.initialized) return openxr;
+
+  // 初期化に失敗していた場合に備えて後始末をしておく
+  openxr.terminate();
+
+  openxr.window = &window;
+  openxr.referenceSpaceType = spaceType;
+
+  try
+  {
+    // 利用可能な拡張機能を調べる
+    uint32_t extensionCount{ 0 };
+    xrCheck(XR_NULL_HANDLE,
+      xrEnumerateInstanceExtensionProperties(nullptr, 0, &extensionCount, nullptr),
+      "Can't count the OpenXR instance extensions");
+    std::vector<XrExtensionProperties> extensionProperties(extensionCount,
+      XrExtensionProperties{ XR_TYPE_EXTENSION_PROPERTIES });
+    xrCheck(XR_NULL_HANDLE,
+      xrEnumerateInstanceExtensionProperties(nullptr, extensionCount,
+        &extensionCount, extensionProperties.data()),
+      "Can't enumerate the OpenXR instance extensions");
+
+    // OpenGL との連携に必要な拡張機能が使えなければあきらめる
+    const auto found{ std::any_of(extensionProperties.begin(), extensionProperties.end(),
+      [](const XrExtensionProperties& p)
+      {
+        return std::strcmp(p.extensionName, XR_KHR_OPENGL_ENABLE_EXTENSION_NAME) == 0;
+      }) };
+    if (!found)
+    {
+      throw std::runtime_error(
+        "The OpenXR runtime does not support " XR_KHR_OPENGL_ENABLE_EXTENSION_NAME);
+    }
+
+    // XrInstance の作成
+    XrInstanceCreateInfo createInfo{ XR_TYPE_INSTANCE_CREATE_INFO };
+    xrCopyString(createInfo.applicationInfo.applicationName,
+      sizeof createInfo.applicationInfo.applicationName, appName ? appName : "GgApp");
+    createInfo.applicationInfo.applicationVersion = 1;
+    xrCopyString(createInfo.applicationInfo.engineName,
+      sizeof createInfo.applicationInfo.engineName, "GgApp");
+    createInfo.applicationInfo.engineVersion = 1;
+    createInfo.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
+
+    const char* const extensions[]{ XR_KHR_OPENGL_ENABLE_EXTENSION_NAME };
+    createInfo.enabledExtensionCount = 1;
+    createInfo.enabledExtensionNames = extensions;
+
+    xrCheck(XR_NULL_HANDLE, xrCreateInstance(&createInfo, &openxr.instance),
+      "Can't create the OpenXR instance (is an OpenXR runtime installed and active?)");
+
+    // システムの取得
+    XrSystemGetInfo systemInfo{ XR_TYPE_SYSTEM_GET_INFO };
+    systemInfo.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
+    xrCheck(openxr.instance, xrGetSystem(openxr.instance, &systemInfo, &openxr.systemId),
+      "Can't get the OpenXR system (is the head mounted display connected?)");
+
+    // システムの名前の取得
+    XrSystemProperties systemProperties{ XR_TYPE_SYSTEM_PROPERTIES };
+    if (XR_SUCCEEDED(xrGetSystemProperties(openxr.instance, openxr.systemId, &systemProperties)))
+    {
+      openxr.systemName = systemProperties.systemName;
+    }
+
+    // OpenGL との連携に必要な拡張機能の関数の取得
+    PFN_xrGetOpenGLGraphicsRequirementsKHR pfnGetOpenGLGraphicsRequirementsKHR{ nullptr };
+    xrCheck(openxr.instance, xrGetInstanceProcAddr(openxr.instance,
+      "xrGetOpenGLGraphicsRequirementsKHR",
+      reinterpret_cast<PFN_xrVoidFunction*>(&pfnGetOpenGLGraphicsRequirementsKHR)),
+      "Can't get the address of xrGetOpenGLGraphicsRequirementsKHR");
+    if (!pfnGetOpenGLGraphicsRequirementsKHR)
+      throw std::runtime_error("Can't get the address of xrGetOpenGLGraphicsRequirementsKHR");
+
+    // OpenGL の要件の取得 (セッションの作成前に必ず呼ばなければならない)
+    XrGraphicsRequirementsOpenGLKHR graphicsRequirements{ XR_TYPE_GRAPHICS_REQUIREMENTS_OPENGL_KHR };
+    xrCheck(openxr.instance, pfnGetOpenGLGraphicsRequirementsKHR(openxr.instance,
+      openxr.systemId, &graphicsRequirements),
+      "Can't get the OpenGL graphics requirements");
+
+    // OpenGL のバージョンが要件を満たしているかどうか調べる
+    GLint major{ 0 }, minor{ 0 };
+    glGetIntegerv(GL_MAJOR_VERSION, &major);
+    glGetIntegerv(GL_MINOR_VERSION, &minor);
+    if (XR_MAKE_VERSION(major, minor, 0) < graphicsRequirements.minApiVersionSupported)
+    {
+      char message[128];
+      std::snprintf(message, sizeof message,
+        "The OpenXR runtime requires OpenGL %d.%d or later, but %d.%d is current",
+        static_cast<int>(XR_VERSION_MAJOR(graphicsRequirements.minApiVersionSupported)),
+        static_cast<int>(XR_VERSION_MINOR(graphicsRequirements.minApiVersionSupported)),
+        major, minor);
+      throw std::runtime_error(message);
+    }
+
+    // OpenGL のコンテキストをセッションに結びつける
+#if defined(XR_USE_PLATFORM_WIN32)
+    XrGraphicsBindingOpenGLWin32KHR graphicsBinding{ XR_TYPE_GRAPHICS_BINDING_OPENGL_WIN32_KHR };
+    graphicsBinding.hDC = wglGetCurrentDC();
+    graphicsBinding.hGLRC = glfwGetWGLContext(window.get());
+#elif defined(XR_USE_PLATFORM_XLIB)
+    XrGraphicsBindingOpenGLXlibKHR graphicsBinding{ XR_TYPE_GRAPHICS_BINDING_OPENGL_XLIB_KHR };
+    graphicsBinding.xDisplay = glfwGetX11Display();
+    graphicsBinding.visualid = 0;
+    graphicsBinding.glxFBConfig = nullptr;
+    graphicsBinding.glxDrawable = glfwGetGLXWindow(window.get());
+    graphicsBinding.glxContext = glfwGetGLXContext(window.get());
+#else
+#  error "GG_USE_OPENXR is not supported on this platform"
+#endif
+
+    // セッションの作成
+    XrSessionCreateInfo sessionCreateInfo{ XR_TYPE_SESSION_CREATE_INFO };
+    sessionCreateInfo.next = &graphicsBinding;
+    sessionCreateInfo.systemId = openxr.systemId;
+    xrCheck(openxr.instance, xrCreateSession(openxr.instance, &sessionCreateInfo, &openxr.session),
+      "Can't create the OpenXR session");
+
+    // 参照空間の作成 (要求されたものが使えなければ LOCAL にフォールバックする)
+    XrReferenceSpaceCreateInfo spaceCreateInfo{ XR_TYPE_REFERENCE_SPACE_CREATE_INFO };
+    spaceCreateInfo.referenceSpaceType = openxr.referenceSpaceType;
+    spaceCreateInfo.poseInReferenceSpace.orientation.w = 1.0f;
+    if (XR_FAILED(xrCreateReferenceSpace(openxr.session, &spaceCreateInfo, &openxr.appSpace)))
+    {
+      openxr.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+      spaceCreateInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+      xrCheck(openxr.instance,
+        xrCreateReferenceSpace(openxr.session, &spaceCreateInfo, &openxr.appSpace),
+        "Can't create the OpenXR reference space");
+    }
+
+    // アクションシステムの初期化
+    openxr.initActions();
+
+    // スワップチェーンの作成
+    openxr.createSwapchains();
+  }
+  catch (...)
+  {
+    // 途中まで確保した資源を解放してから例外を投げ直す
+    openxr.terminate();
+    throw;
+  }
+
+  // OpenXR は xrWaitFrame() でフレームの表示速度を制御するので
+  // ウィンドウ側の垂直同期の待ち合わせは行わない
   glfwSwapInterval(0);
 
-  return oculus;
+  openxr.initialized = true;
+
+  return openxr;
 }
 
 //
-// Oculus Rift のセッションを破棄する
+// OpenXR のハンドルを破棄する (OpenGL の資源には触れない)
 //
-void GgApp::Oculus::terminate()
+void GgApp::OpenXR::destroyXr()
 {
-  // session が無効なら何もしない
-  if (!session) return;
-
-  // ミラー表示用の FBO を作っていたら削除する
-  if (mirrorFbo)
+  for (int i = 0; i < Hand::Count; ++i)
   {
-    glDeleteFramebuffers(1, &mirrorFbo);
-    mirrorFbo = 0;
+    if (aimSpace[i] != XR_NULL_HANDLE) { xrDestroySpace(aimSpace[i]); aimSpace[i] = XR_NULL_HANDLE; }
+    if (gripSpace[i] != XR_NULL_HANDLE) { xrDestroySpace(gripSpace[i]); gripSpace[i] = XR_NULL_HANDLE; }
   }
 
-  // ミラー表示用の FBO のカラーバッファ用のテクスチャを作っていたら削除する
-  if (mirrorTexture)
-  {
-#  if OVR_PRODUCT_VERSION > 0
-    ovr_DestroyMirrorTexture(session, mirrorTexture);
-#  else
-    glDeleteTextures(1, &mirrorTexture->OGL.TexId);
-    ovr_DestroyMirrorTexture(session, reinterpret_cast<ovrTexture*>(mirrorTexture));
-#  endif
-    mirrorTexture = nullptr;
-  }
+  // アクションはアクションセットと一緒に破棄される
+  if (actionSet != XR_NULL_HANDLE) xrDestroyActionSet(actionSet);
+  actionSet = XR_NULL_HANDLE;
+  aimPoseAction = gripPoseAction = XR_NULL_HANDLE;
+  triggerAction = gripAction = XR_NULL_HANDLE;
+  thumbstickAction = thumbstickClickAction = XR_NULL_HANDLE;
+  primaryButtonAction = secondaryButtonAction = menuButtonAction = XR_NULL_HANDLE;
+  hapticAction = XR_NULL_HANDLE;
 
-  // 全ての目について
-  for (int eye = 0; eye < ovrEye_Count; ++eye)
-  {
-    // Oculus Rift へのレンダリング用の FBO を削除する
-    glDeleteFramebuffers(1, oculusFbo + eye);
-    oculusFbo[eye] = 0;
+  for (auto swapchain : swapchains) xrDestroySwapchain(swapchain);
+  swapchains.clear();
+  swapchainImages.clear();
 
-#  if OVR_PRODUCT_VERSION > 0
+  if (appSpace != XR_NULL_HANDLE) { xrDestroySpace(appSpace); appSpace = XR_NULL_HANDLE; }
+  if (session != XR_NULL_HANDLE) { xrDestroySession(session); session = XR_NULL_HANDLE; }
+  if (instance != XR_NULL_HANDLE) { xrDestroyInstance(instance); instance = XR_NULL_HANDLE; }
 
-    // レンダリングターゲットに使ったテクスチャを削除する
-    if (layerData.ColorTexture[eye])
-    {
-      ovr_DestroyTextureSwapChain(session, layerData.ColorTexture[eye]);
-      layerData.ColorTexture[eye] = nullptr;
-    }
-
-    // デプスバッファとして使ったテクスチャを削除する
-    glDeleteTextures(1, oculusDepth + eye);
-    oculusDepth[eye] = 0;
-
-#  else
-
-    // レンダリングターゲットに使ったテクスチャを削除する
-    auto* const colorTexture(layerData.EyeFov.ColorTexture[eye]);
-    for (int i = 0; i < colorTexture->TextureCount; ++i)
-    {
-      const auto* const ctex(reinterpret_cast<ovrGLTexture*>(&colorTexture->Textures[i]));
-      glDeleteTextures(1, &ctex->OGL.TexId);
-    }
-    ovr_DestroySwapTextureSet(session, colorTexture);
-
-    // デプスバッファとして使ったテクスチャを削除する
-    auto* const depthTexture(layerData.EyeFovDepth.DepthTexture[eye]);
-    for (int i = 0; i < depthTexture->TextureCount; ++i)
-    {
-      const auto* const dtex(reinterpret_cast<ovrGLTexture*>(&depthTexture->Textures[i]));
-      glDeleteTextures(1, &dtex->OGL.TexId);
-    }
-    ovr_DestroySwapTextureSet(session, depthTexture);
-
-#  endif
-  }
-
-  // Oculus Rift のセッションを破棄する
-  ovr_Destroy(session);
-  session = nullptr;
-
-  // カラースペースを元に戻す
-  glDisable(GL_FRAMEBUFFER_SRGB);
-
-  // バックバッファに描く
-  glDrawBuffer(GL_BACK);
-
-  // 垂直同期タイミングに合わせる
-  glfwSwapInterval(1);
+  systemId = XR_NULL_SYSTEM_ID;
+  sessionState = XR_SESSION_STATE_UNKNOWN;
+  isSessionRunning = false;
+  frameBegun = false;
+  viewPoseValid = false;
+  initialized = false;
 }
 
 //
-// Oculus Rift による描画開始
+// OpenXR のセッションを破棄する
 //
-bool GgApp::Oculus::begin()
+void GgApp::OpenXR::terminate()
 {
-#  if OVR_PRODUCT_VERSION > 0
-
-  // セッションの状態を取得する
-  ovrSessionStatus sessionStatus;
-  ovr_GetSessionStatus(session, &sessionStatus);
-
-  // アプリケーションが終了を要求しているときはウィンドウのクローズフラグを立てる
-  if (sessionStatus.ShouldQuit) window->setClose(GLFW_TRUE);
-
-  // Oculus Rift に表示されていないときは戻る
-  if (!sessionStatus.IsVisible) return false;
-
-  // 現在の状態をトラッキングの原点にする
-  if (sessionStatus.ShouldRecenter) ovr_RecenterTrackingOrigin(session);
-
-  // HmdToEyeOffset などは実行時に変化するので毎フレーム ovr_GetRenderDesc() で ovrEyeRenderDesc を取得する
-  const ovrEyeRenderDesc eyeRenderDesc[]
+  // 取得中のスワップチェーンイメージがあれば解放する (xrEndFrame() より前に行う)
+  for (size_t i = 0; i < imageAcquired.size(); ++i)
   {
-    ovr_GetRenderDesc(session, ovrEyeType(0), hmdDesc.DefaultEyeFov[0]),
-    ovr_GetRenderDesc(session, ovrEyeType(1), hmdDesc.DefaultEyeFov[1])
-  };
+    if (!imageAcquired[i]) continue;
+    XrSwapchainImageReleaseInfo releaseInfo{ XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+    xrReleaseSwapchainImage(swapchains[i], &releaseInfo);
+    imageAcquired[i] = false;
+  }
 
-  // Oculus Rift のスクリーンのヘッドトラッキング位置からの変位を取得する
-  const ovrPosef hmdToEyePose[]
+  // 描画中のフレームがあれば完了しておく
+  if (frameBegun) endFrame();
+
+  // OpenGL の資源を解放する
+  if (!openxrFbo.empty())
   {
-    eyeRenderDesc[0].HmdToEyePose,
-    eyeRenderDesc[1].HmdToEyePose
-  };
-
-  // 視点の姿勢情報を取得する
-  ovr_GetEyePoses(session, frameIndex, ovrTrue, hmdToEyePose, layerData.RenderPose, &layerData.SensorSampleTime);
-
-#  else
-
-  // フレームのタイミング計測開始
-  const auto ftiming(ovr_GetPredictedDisplayTime(session, 0));
-
-  // sensorSampleTime の取得は可能な限り ovr_GetTrackingState() の近くで行う
-  layerData.EyeFov.SensorSampleTime = ovr_GetTimeInSeconds();
-
-  // ヘッドトラッキングの状態を取得する
-  const auto hmdState(ovr_GetTrackingState(session, ftiming, ovrTrue));
-
-  // Oculus Rift のスクリーンのヘッドトラッキング位置からの変位を取得する
-  const ovrVector3f hmdToEyeViewOffset[]
+    glDeleteFramebuffers(static_cast<GLsizei>(openxrFbo.size()), openxrFbo.data());
+    openxrFbo.clear();
+  }
+  if (!openxrDepth.empty())
   {
-    eyeRenderDesc[0].HmdToEyeViewOffset,
-    eyeRenderDesc[1].HmdToEyeViewOffset
-  };
+    glDeleteRenderbuffers(static_cast<GLsizei>(openxrDepth.size()), openxrDepth.data());
+    openxrDepth.clear();
+  }
 
-  // 視点の姿勢情報を求める
-  ovr_CalcEyePoses(hmdState.HeadPose.ThePose, hmdToEyeViewOffset, eyePose);
+  // OpenXR のハンドルを破棄する
+  destroyXr();
 
-#  endif
+  views.clear();
+  viewStates.clear();
+  currentImageIndex.clear();
+  imageAcquired.clear();
+  systemName.clear();
+
+  for (auto& state : controllerStates) state = ControllerState{};
+
+  // ウィンドウ側の設定を元に戻す
+  if (window)
+  {
+    glDisable(GL_FRAMEBUFFER_SRGB);
+    glfwSwapInterval(1);
+    window = nullptr;
+  }
+}
+
+//
+// OpenXR による描画開始
+//
+bool GgApp::OpenXR::begin()
+{
+  // 初期化されていなければ何もしない
+  if (instance == XR_NULL_HANDLE) return false;
+
+  // OpenXR のイベントを処理する
+  pollEvents();
+
+  // セッションが実行中でなければ描画しない
+  if (!isSessionRunning) return false;
+
+  // 合成器がこのフレームの描画を始めるべき時刻まで待つ
+  XrFrameWaitInfo waitInfo{ XR_TYPE_FRAME_WAIT_INFO };
+  frameState = XrFrameState{ XR_TYPE_FRAME_STATE };
+  if (!xrWarn(instance, xrWaitFrame(session, &waitInfo, &frameState),
+    "Can't wait for the OpenXR frame")) return false;
+
+  // フレームの描画を開始する
+  XrFrameBeginInfo beginInfo{ XR_TYPE_FRAME_BEGIN_INFO };
+  if (!xrWarn(instance, xrBeginFrame(session, &beginInfo),
+    "Can't begin the OpenXR frame")) return false;
+
+  // ここから先は必ず xrEndFrame() を呼ばなければならない
+  frameBegun = true;
+  viewPoseValid = false;
+
+  // コントローラーの状態を更新する
+  pollActions();
+
+  // 描画すべきフレームなら視点の姿勢を取得する
+  if (frameState.shouldRender != XR_FALSE)
+  {
+    XrViewLocateInfo viewLocateInfo{ XR_TYPE_VIEW_LOCATE_INFO };
+    viewLocateInfo.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+    viewLocateInfo.displayTime = frameState.predictedDisplayTime;
+    viewLocateInfo.space = appSpace;
+
+    XrViewState viewState{ XR_TYPE_VIEW_STATE };
+    uint32_t viewCount{ 0 };
+    if (XR_SUCCEEDED(xrLocateViews(session, &viewLocateInfo, &viewState,
+      static_cast<uint32_t>(viewStates.size()), &viewCount, viewStates.data())))
+    {
+      // 位置と向きの両方が有効なときだけ描画する
+      constexpr XrViewStateFlags valid
+      {
+        XR_VIEW_STATE_POSITION_VALID_BIT | XR_VIEW_STATE_ORIENTATION_VALID_BIT
+      };
+      viewPoseValid = (viewState.viewStateFlags & valid) == valid
+        && viewCount == static_cast<uint32_t>(viewStates.size());
+    }
+  }
+
+  // 描画するなら true を返す
+  if (viewPoseValid) return true;
+
+  // 描画しないフレームでもここで xrEndFrame() を呼んで辻褄を合わせる
+  endFrame();
+
+  return false;
+}
+
+//
+// 描画対象の目を指定してフレームバッファとビューポートを設定する
+//
+void GgApp::OpenXR::select(int eye)
+{
+  // 描画すべきフレームでなければ何もしない
+  if (!frameBegun || !viewPoseValid) return;
+
+  // 視点の番号が範囲を外れていたら何もしない
+  assert(eye >= 0 && eye < static_cast<int>(swapchains.size()));
+  if (eye < 0 || eye >= static_cast<int>(swapchains.size())) return;
+
+  // 取得済みなら描画先を結合し直すだけにする
+  if (imageAcquired[eye])
+  {
+    glBindFramebuffer(GL_FRAMEBUFFER, openxrFbo[eye]);
+    glViewport(0, 0,
+      static_cast<GLsizei>(views[eye].recommendedImageRectWidth),
+      static_cast<GLsizei>(views[eye].recommendedImageRectHeight));
+    if (swapchainIsSrgb) glEnable(GL_FRAMEBUFFER_SRGB);
+    return;
+  }
+
+  // 描画可能なスワップチェーンイメージを取得する
+  XrSwapchainImageAcquireInfo acquireInfo{ XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+  if (!xrWarn(instance, xrAcquireSwapchainImage(swapchains[eye], &acquireInfo,
+    &currentImageIndex[eye]), "Can't acquire the OpenXR swapchain image")) return;
+
+  // そのスワップチェーンイメージが描画可能になるのを待つ
+  XrSwapchainImageWaitInfo waitInfo{ XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
+  waitInfo.timeout = XR_INFINITE_DURATION;
+  if (!xrWarn(instance, xrWaitSwapchainImage(swapchains[eye], &waitInfo),
+    "Can't wait for the OpenXR swapchain image"))
+  {
+    XrSwapchainImageReleaseInfo releaseInfo{ XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+    xrReleaseSwapchainImage(swapchains[eye], &releaseInfo);
+    return;
+  }
+
+  imageAcquired[eye] = true;
+
+  // 描画先をこのスワップチェーンイメージに切り替える
+  const GLuint texture{ swapchainImages[eye][currentImageIndex[eye]].image };
+  glBindFramebuffer(GL_FRAMEBUFFER, openxrFbo[eye]);
+  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+
+  // フレームバッファオブジェクトが完成しているか確かめる (最初の一度だけ報告する)
+  static bool reported{ false };
+  if (!reported && glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+  {
+    reported = true;
+    std::cerr << "OpenXR: The framebuffer object for the swapchain image is not complete\n";
+  }
+
+  glViewport(0, 0,
+    static_cast<GLsizei>(views[eye].recommendedImageRectWidth),
+    static_cast<GLsizei>(views[eye].recommendedImageRectHeight));
+
+  // sRGB のスワップチェーンならリニア色空間で描画する
+  if (swapchainIsSrgb) glEnable(GL_FRAMEBUFFER_SRGB);
+}
+
+//
+// 描画対象の目を指定する (旧 LibOVR 仕様互換)
+//
+void GgApp::OpenXR::select(int eye, GLfloat* screen, GLfloat* position, GLfloat* orientation)
+{
+  select(eye);
+
+  assert(eye >= 0 && eye < static_cast<int>(viewStates.size()));
+  const auto& pose = viewStates[eye].pose;
+  const auto& fov = viewStates[eye].fov;
+
+  screen[0] = tanf(fov.angleLeft);
+  screen[1] = tanf(fov.angleRight);
+  screen[2] = tanf(fov.angleDown);
+  screen[3] = tanf(fov.angleUp);
+
+  position[0] = pose.position.x;
+  position[1] = pose.position.y;
+  position[2] = pose.position.z;
+
+  orientation[0] = pose.orientation.x;
+  orientation[1] = pose.orientation.y;
+  orientation[2] = pose.orientation.z;
+  orientation[3] = pose.orientation.w;
+}
+
+//
+// 指定した目の描画を完了する
+//
+void GgApp::OpenXR::commit(int eye)
+{
+  if (!frameBegun) return;
+  assert(eye >= 0 && eye < static_cast<int>(swapchains.size()));
+  if (eye < 0 || eye >= static_cast<int>(swapchains.size())) return;
+  if (!imageAcquired[eye]) return;
+
+  // ガンマ補正を元に戻して描画先をウィンドウに戻す
+  if (swapchainIsSrgb) glDisable(GL_FRAMEBUFFER_SRGB);
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+  // スワップチェーンイメージはミラー表示に使うので, ここでは解放しない
+  // (解放は submit() の中でミラー表示を行った後に実施する)
+}
+
+//
+// ミラー表示を行う
+//
+void GgApp::OpenXR::blitMirror() const
+{
+  // ミラー表示を行わないなら何もしない
+  if (mirrorView < 0 || !window) return;
+  const auto eye{ static_cast<size_t>(mirrorView) };
+  if (eye >= swapchains.size() || !imageAcquired[eye]) return;
+
+  // 転送元の大きさ
+  const auto srcWidth{ static_cast<GLint>(views[eye].recommendedImageRectWidth) };
+  const auto srcHeight{ static_cast<GLint>(views[eye].recommendedImageRectHeight) };
+  if (srcWidth <= 0 || srcHeight <= 0) return;
+
+  // 転送先 (ウィンドウ) の大きさ
+  const auto& fboSize{ window->getFboSize() };
+  if (fboSize[0] <= 0 || fboSize[1] <= 0) return;
+
+  // 縦横比を保ったままウィンドウに収まる転送先の矩形を求める
+  const auto scale{ std::min(
+    static_cast<float>(fboSize[0]) / static_cast<float>(srcWidth),
+    static_cast<float>(fboSize[1]) / static_cast<float>(srcHeight)) };
+  const auto dstWidth{ static_cast<GLint>(static_cast<float>(srcWidth) * scale) };
+  const auto dstHeight{ static_cast<GLint>(static_cast<float>(srcHeight) * scale) };
+  const auto dstLeft{ (static_cast<GLint>(fboSize[0]) - dstWidth) / 2 };
+  const auto dstBottom{ (static_cast<GLint>(fboSize[1]) - dstHeight) / 2 };
+
+  // sRGB の再変換を避けるためにガンマ補正を無効にする
+  if (swapchainIsSrgb) glDisable(GL_FRAMEBUFFER_SRGB);
+
+  // 上下左右の余白を黒で塗りつぶす (消去色は元に戻す)
+  GLfloat clearColor[4];
+  glGetFloatv(GL_COLOR_CLEAR_VALUE, clearColor);
+  glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+  glDisable(GL_SCISSOR_TEST);
+  glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+  glClear(GL_COLOR_BUFFER_BIT);
+  glClearColor(clearColor[0], clearColor[1], clearColor[2], clearColor[3]);
+
+  // スワップチェーンイメージをウィンドウに転送する
+  glBindFramebuffer(GL_READ_FRAMEBUFFER, openxrFbo[eye]);
+  glBlitFramebuffer(0, 0, srcWidth, srcHeight,
+    dstLeft, dstBottom, dstLeft + dstWidth, dstBottom + dstHeight,
+    GL_COLOR_BUFFER_BIT, GL_LINEAR);
+  glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+}
+
+//
+// 描画中のフレームを合成器に転送する
+//
+void GgApp::OpenXR::endFrame()
+{
+  if (!frameBegun) return;
+
+  // 合成する層
+  std::vector<XrCompositionLayerProjectionView> projectionViews;
+  XrCompositionLayerProjection layer{ XR_TYPE_COMPOSITION_LAYER_PROJECTION };
+  const XrCompositionLayerBaseHeader* layers[1]{ nullptr };
+
+  // 描画したのなら層を用意する
+  if (viewPoseValid && frameState.shouldRender != XR_FALSE)
+  {
+    projectionViews.resize(swapchains.size());
+    for (size_t i = 0; i < swapchains.size(); ++i)
+    {
+      auto& projectionView{ projectionViews[i] };
+      projectionView = XrCompositionLayerProjectionView{ XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW };
+      projectionView.pose = viewStates[i].pose;
+      projectionView.fov = viewStates[i].fov;
+      projectionView.subImage.swapchain = swapchains[i];
+      projectionView.subImage.imageRect.offset = { 0, 0 };
+      projectionView.subImage.imageRect.extent = {
+        static_cast<int32_t>(views[i].recommendedImageRectWidth),
+        static_cast<int32_t>(views[i].recommendedImageRectHeight)
+      };
+      projectionView.subImage.imageArrayIndex = 0;
+    }
+
+    // 環境の合成方法に応じて層の属性を設定する
+    layer.layerFlags = blendMode == XR_ENVIRONMENT_BLEND_MODE_OPAQUE ? 0
+      : XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT
+      | XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT;
+    layer.space = appSpace;
+    layer.viewCount = static_cast<uint32_t>(projectionViews.size());
+    layer.views = projectionViews.data();
+    layers[0] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layer);
+  }
+
+  // フレームを合成器に転送する
+  XrFrameEndInfo endInfo{ XR_TYPE_FRAME_END_INFO };
+  endInfo.displayTime = frameState.predictedDisplayTime;
+  endInfo.environmentBlendMode = blendMode;
+  endInfo.layerCount = layers[0] ? 1u : 0u;
+  endInfo.layers = layers;
+  xrWarn(instance, xrEndFrame(session, &endInfo), "Can't end the OpenXR frame");
+
+  frameBegun = false;
+}
+
+//
+// フレームを転送して HMD に表示する
+//
+bool GgApp::OpenXR::submit(bool mirror)
+{
+  // 描画中のフレームがなければ何もしない
+  if (!frameBegun) return false;
+
+  // ミラー表示の有無を設定する
+  if (!mirror) mirrorView = -1;
+  else if (mirrorView < 0) mirrorView = 0;
+
+  // スワップチェーンイメージを解放する前にミラー表示を行う
+  blitMirror();
+
+  // ウィンドウのビューポートを復帰して Dear ImGui などの描画に備える
+  if (window) window->restoreViewport();
+
+  // 取得したスワップチェーンイメージを解放する
+  for (size_t i = 0; i < imageAcquired.size(); ++i)
+  {
+    if (!imageAcquired[i]) continue;
+    XrSwapchainImageReleaseInfo releaseInfo{ XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+    xrWarn(instance, xrReleaseSwapchainImage(swapchains[i], &releaseInfo),
+      "Can't release the OpenXR swapchain image");
+    imageAcquired[i] = false;
+  }
+
+  // 合成器にフレームを転送する
+  endFrame();
 
   return true;
 }
 
 //
-// Oculus Rift の描画する目の指定
+// ミラー表示を行うビューの番号を設定する
 //
-void GgApp::Oculus::select(int eye, GLfloat* screen, GLfloat* position, GLfloat* orientation)
+void GgApp::OpenXR::setMirror(int eye)
 {
-#  if OVR_PRODUCT_VERSION > 0
-
-  // Oculus Rift にレンダリングする FBO に切り替える
-  if (layerData.ColorTexture[eye])
-  {
-    // FBO のカラーバッファに使う現在のテクスチャのインデックスを取得する
-    int curIndex;
-    ovr_GetTextureSwapChainCurrentIndex(session, layerData.ColorTexture[eye], &curIndex);
-
-    // FBO のカラーバッファに使うテクスチャを取得する
-    GLuint curTexId;
-    ovr_GetTextureSwapChainBufferGL(session, layerData.ColorTexture[eye], curIndex, &curTexId);
-
-    // FBO を設定する
-    glBindFramebuffer(GL_FRAMEBUFFER, oculusFbo[eye]);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, curTexId, 0);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, oculusDepth[eye], 0);
-
-    // ビューポートを設定する
-    const auto& vp{ layerData.Viewport[eye] };
-    glViewport(vp.Pos.x, vp.Pos.y, vp.Size.w, vp.Size.h);
-  }
-
-  // Oculus Rift の片目の位置と回転を取得する
-  const auto& p{ layerData.RenderPose[eye].Position };
-  const auto& o{ layerData.RenderPose[eye].Orientation };
-
-#  else
-
-  // レンダーターゲットに描画する前にレンダーターゲットのインデックスをインクリメントする
-  auto* const colorTexture{ layerData.EyeFov.ColorTexture[eye] };
-  colorTexture->CurrentIndex = (colorTexture->CurrentIndex + 1) % colorTexture->TextureCount;
-  auto* const depthTexture{ layerData.EyeFovDepth.DepthTexture[eye] };
-  depthTexture->CurrentIndex = (depthTexture->CurrentIndex + 1) % depthTexture->TextureCount;
-
-  // レンダーターゲットを切り替える
-  glBindFramebuffer(GL_FRAMEBUFFER, oculusFbo[eye]);
-  const auto& ctex{ reinterpret_cast<ovrGLTexture*>(&colorTexture->Textures[colorTexture->CurrentIndex]) };
-  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, ctex->OGL.TexId, 0);
-  const auto& dtex{ reinterpret_cast<ovrGLTexture*>(&depthTexture->Textures[depthTexture->CurrentIndex]) };
-  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, dtex->OGL.TexId, 0);
-
-  // ビューポートを設定する
-  const auto& vp{ layerData.EyeFov.Viewport[eye] };
-  glViewport(vp.Pos.x, vp.Pos.y, vp.Size.w, vp.Size.h);
-
-  // Oculus Rift の片目の位置と回転を取得する
-  const auto& p{ eyePose[eye].Position };
-  const auto& o{ eyePose[eye].Orientation };
-
-#  endif
-
-  // Oculus Rift のスクリーンの大きさを返す
-  screen[0] = this->screen[eye][0];
-  screen[1] = this->screen[eye][1];
-  screen[2] = this->screen[eye][2];
-  screen[3] = this->screen[eye][3];
-
-  // Oculus Rift の位置を返す
-  position[0] = p.x;
-  position[1] = p.y;
-  position[2] = p.z;
-
-  // Oculus Rift の方向を返す
-  orientation[0] = o.x;
-  orientation[1] = o.y;
-  orientation[2] = o.z;
-  orientation[3] = o.w;
+  mirrorView = eye;
 }
 
 //
-// Time Warp 処理に使う投影変換行列の成分の設定 (DK1, DK2)
+// ミラー表示を行うビューの番号を取得する
 //
-void GgApp::Oculus::timewarp(const GgMatrix& projection)
+int GgApp::OpenXR::getMirror() const
 {
-#  if OVR_PRODUCT_VERSION < 1
-  // TimeWarp に使う変換行列の成分を設定する
-  auto& posTimewarpProjectionDesc{ layerData.EyeFovDepth.ProjectionDesc };
-  posTimewarpProjectionDesc.Projection22 = (projection.get()[4 * 2 + 2] + projection.get()[4 * 3 + 2]) * 0.5f;
-  posTimewarpProjectionDesc.Projection23 = projection.get()[4 * 2 + 3] * 0.5f;
-  posTimewarpProjectionDesc.Projection32 = projection.get()[4 * 3 + 2];
-#  endif
+  return mirrorView;
 }
 
 //
-// 図形の描画を完了する (CV1 以降)
+// セッションが実行中かどうか調べる
 //
-void GgApp::Oculus::commit(int eye)
+bool GgApp::OpenXR::isRunning() const
 {
-#  if OVR_PRODUCT_VERSION > 0
-  // GL_COLOR_ATTACHMENT0 に割り当てられたテクスチャが wglDXUnlockObjectsNV() によって
-  // アンロックされるために次のフレームの処理において無効な GL_COLOR_ATTACHMENT0 が
-  // FBO に結合されるのを避ける
-  glBindFramebuffer(GL_FRAMEBUFFER, oculusFbo[eye]);
-  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
-  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
-
-  // 保留中の変更を layerData.ColorTexture[eye] に反映しインデックスを更新する
-  ovr_CommitTextureSwapChain(session, layerData.ColorTexture[eye]);
-#  endif
+  return isSessionRunning;
 }
 
 //
-// フレームを転送する
+// アプリケーションが入力を受け付けているかどうか調べる
 //
-bool GgApp::Oculus::submit(bool mirror)
+bool GgApp::OpenXR::isFocused() const
 {
-  // エラーチェック
-  ggError();
-
-#  if OVR_PRODUCT_VERSION > 0
-  // 描画データを Oculus Rift に転送する
-  const auto* const layers{ &layerData.Header };
-  if (OVR_FAILURE(ovr_SubmitFrame(session, frameIndex++, nullptr, &layers, 1))) return false;
-#  else
-  // Oculus Rift 上の描画位置と拡大率を求める
-  ovrViewScaleDesc viewScaleDesc;
-  viewScaleDesc.HmdSpaceToWorldScaleInMeters = 1.0f;
-  viewScaleDesc.HmdToEyeViewOffset[0] = eyeRenderDesc[0].HmdToEyeViewOffset;
-  viewScaleDesc.HmdToEyeViewOffset[1] = eyeRenderDesc[1].HmdToEyeViewOffset;
-
-  // 描画データを更新する
-  layerData.EyeFov.RenderPose[0] = eyePose[0];
-  layerData.EyeFov.RenderPose[1] = eyePose[1];
-
-  // 描画データを Oculus Rift に転送する
-  const auto* const layers{ &layerData.Header };
-  if (OVR_FAILURE(ovr_SubmitFrame(session, 0, &viewScaleDesc, &layers, 1))) return false;
-#  endif
-
-  // ミラー表示
-  if (mirror)
-  {
-#  if OVR_PRODUCT_VERSION > 0
-    const auto& sx1{ mirrorWidth };
-    const auto& sy1{ mirrorHeight };
-#  else
-    const auto& sx1{ mirrorTexture->OGL.Header.TextureSize.w };
-    const auto& sy1{ mirrorTexture->OGL.Header.TextureSize.h };
-#  endif
-
-    // ミラー表示のウィンドウのサイズ
-    GLsizei size[2];
-    window->getSize(size);
-
-    // ミラー表示の表示領域
-    GLint dx0{ 0 }, dx1{ size[0] }, dy0{ 0 }, dy1{ size[1] };
-
-    // ミラー表示がウィンドウからはみ出ないようにする
-    if ((size[0] *= sy1) < (size[1] *= sx1))
-    {
-      const GLint ty1{ size[0] / sx1 };
-      dy0 = (dy1 - ty1) / 2;
-      dy1 = dy0 + ty1;
-    }
-    else
-    {
-      const GLint tx1{ size[1] / sy1 };
-      dx0 = (dx1 - tx1) / 2;
-      dx1 = dx0 + tx1;
-    }
-
-    // レンダリング結果をミラー表示用のフレームバッファにも転送する
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, mirrorFbo);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-    glBlitFramebuffer(0, sy1, sx1, 0, dx0, dy0, dx1, dy1, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
-
-    // 残っている OpenGL コマンドを実行する
-    glFlush();
-  }
-
-  return true;
+  return sessionState == XR_SESSION_STATE_FOCUSED;
 }
+
+//
+// OpenXR のシステム (HMD) の名前を取得する
+//
+const std::string& GgApp::OpenXR::getSystemName() const
+{
+  return systemName;
+}
+
+//
+// 指定した目の透視投影変換行列を取得する
+//
+GgMatrix GgApp::OpenXR::getProjectionMatrix(int eye, GLfloat zNear, GLfloat zFar) const
+{
+  assert(eye >= 0 && eye < static_cast<int>(viewStates.size()));
+  const auto& fov{ viewStates[eye].fov };
+  const GLfloat l{ tanf(fov.angleLeft) * zNear };
+  const GLfloat r{ tanf(fov.angleRight) * zNear };
+  const GLfloat b{ tanf(fov.angleDown) * zNear };
+  const GLfloat t{ tanf(fov.angleUp) * zNear };
+  return ggFrustum(l, r, b, t, zNear, zFar);
+}
+
+//
+// 指定した目のビュー変換行列を取得する
+//
+GgMatrix GgApp::OpenXR::getViewMatrix(int eye) const
+{
+  assert(eye >= 0 && eye < static_cast<int>(viewStates.size()));
+  const auto& pose{ viewStates[eye].pose };
+  const GgQuaternion q{ pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w };
+  return q.getConjugateMatrix() * ggTranslate(-pose.position.x, -pose.position.y, -pose.position.z);
+}
+
+//
+// 指定した目の姿勢行列を取得する
+//
+GgMatrix GgApp::OpenXR::getPoseMatrix(int eye) const
+{
+  assert(eye >= 0 && eye < static_cast<int>(viewStates.size()));
+  const auto& pose{ viewStates[eye].pose };
+  const GgQuaternion q{ pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w };
+  return ggTranslate(pose.position.x, pose.position.y, pose.position.z) * q.getMatrix();
+}
+
+//
+// 指定した目の視点位置を取得する
+//
+GgVector GgApp::OpenXR::getPosition(int eye) const
+{
+  assert(eye >= 0 && eye < static_cast<int>(viewStates.size()));
+  const auto& pos{ viewStates[eye].pose.position };
+  return GgVector{ pos.x, pos.y, pos.z, 1.0f };
+}
+
+//
+// 指定した目の視線方向の回転四元数を取得する
+//
+GgQuaternion GgApp::OpenXR::getOrientation(int eye) const
+{
+  assert(eye >= 0 && eye < static_cast<int>(viewStates.size()));
+  const auto& ori{ viewStates[eye].pose.orientation };
+  return GgQuaternion{ ori.x, ori.y, ori.z, ori.w };
+}
+
+//
+// 指定した目の視野角情報 (XrFovf) を取得する
+//
+const XrFovf& GgApp::OpenXR::getFov(int eye) const
+{
+  assert(eye >= 0 && eye < static_cast<int>(viewStates.size()));
+  return viewStates[eye].fov;
+}
+
+//
+// 指定した目の姿勢情報 (XrPosef) を取得する
+//
+const XrPosef& GgApp::OpenXR::getPose(int eye) const
+{
+  assert(eye >= 0 && eye < static_cast<int>(viewStates.size()));
+  return viewStates[eye].pose;
+}
+
+//
+// 視点の姿勢が有効かどうか調べる
+//
+bool GgApp::OpenXR::isPoseValid() const
+{
+  return viewPoseValid;
+}
+
+//
+// レンダリング推奨解像度の横幅を取得する
+//
+GLsizei GgApp::OpenXR::getWidth(int eye) const
+{
+  assert(eye >= 0 && eye < static_cast<int>(views.size()));
+  return static_cast<GLsizei>(views[eye].recommendedImageRectWidth);
+}
+
+//
+// レンダリング推奨解像度の高さを取得する
+//
+GLsizei GgApp::OpenXR::getHeight(int eye) const
+{
+  assert(eye >= 0 && eye < static_cast<int>(views.size()));
+  return static_cast<GLsizei>(views[eye].recommendedImageRectHeight);
+}
+
+//
+// アスペクト比を取得する
+//
+GLfloat GgApp::OpenXR::getAspect(int eye) const
+{
+  assert(eye >= 0 && eye < static_cast<int>(views.size()));
+  return static_cast<GLfloat>(views[eye].recommendedImageRectWidth)
+    / static_cast<GLfloat>(views[eye].recommendedImageRectHeight);
+}
+
+//
+// ビューの総数を取得する
+//
+uint32_t GgApp::OpenXR::getViewCount() const
+{
+  return static_cast<uint32_t>(views.size());
+}
+
+//
+// 現在の参照空間タイプを取得する
+//
+XrReferenceSpaceType GgApp::OpenXR::getReferenceSpaceType() const
+{
+  return referenceSpaceType;
+}
+
+//
+// コントローラーがトラッキングされているか取得する
+//
+bool GgApp::OpenXR::isTracked(int hand) const
+{
+  assert(hand >= 0 && hand < Hand::Count);
+  return controllerStates[hand].isTracked;
+}
+
+//
+// コントローラーのグリップ変換行列を取得する
+//
+GgMatrix GgApp::OpenXR::getGripMatrix(int hand) const
+{
+  assert(hand >= 0 && hand < Hand::Count);
+  const auto& pose = controllerStates[hand].gripPose;
+  const GgQuaternion q{ pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w };
+  return ggTranslate(pose.position.x, pose.position.y, pose.position.z) * q.getMatrix();
+}
+
+//
+// コントローラーのエイム変換行列を取得する
+//
+GgMatrix GgApp::OpenXR::getAimMatrix(int hand) const
+{
+  assert(hand >= 0 && hand < Hand::Count);
+  const auto& pose = controllerStates[hand].aimPose;
+  const GgQuaternion q{ pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w };
+  return ggTranslate(pose.position.x, pose.position.y, pose.position.z) * q.getMatrix();
+}
+
+//
+// コントローラーのグリップ位置を取得する
+//
+GgVector GgApp::OpenXR::getGripPosition(int hand) const
+{
+  assert(hand >= 0 && hand < Hand::Count);
+  const auto& pos = controllerStates[hand].gripPose.position;
+  return GgVector{ pos.x, pos.y, pos.z, 1.0f };
+}
+
+//
+// コントローラーのグリップ回転四元数を取得する
+//
+GgQuaternion GgApp::OpenXR::getGripOrientation(int hand) const
+{
+  assert(hand >= 0 && hand < Hand::Count);
+  const auto& ori = controllerStates[hand].gripPose.orientation;
+  return GgQuaternion{ ori.x, ori.y, ori.z, ori.w };
+}
+
+//
+// コントローラーのエイム位置を取得する
+//
+GgVector GgApp::OpenXR::getAimPosition(int hand) const
+{
+  assert(hand >= 0 && hand < Hand::Count);
+  const auto& pos = controllerStates[hand].aimPose.position;
+  return GgVector{ pos.x, pos.y, pos.z, 1.0f };
+}
+
+//
+// コントローラーのエイム回転四元数を取得する
+//
+GgQuaternion GgApp::OpenXR::getAimOrientation(int hand) const
+{
+  assert(hand >= 0 && hand < Hand::Count);
+  const auto& ori = controllerStates[hand].aimPose.orientation;
+  return GgQuaternion{ ori.x, ori.y, ori.z, ori.w };
+}
+
+//
+// トリガーの押し込み量を取得する
+//
+float GgApp::OpenXR::getTrigger(int hand) const
+{
+  assert(hand >= 0 && hand < Hand::Count);
+  return controllerStates[hand].trigger;
+}
+
+//
+// グリップの押し込み量を取得する
+//
+float GgApp::OpenXR::getGrip(int hand) const
+{
+  assert(hand >= 0 && hand < Hand::Count);
+  return controllerStates[hand].grip;
+}
+
+//
+// アナログスティックの入力値を取得する
+//
+std::array<float, 2> GgApp::OpenXR::getThumbstick(int hand) const
+{
+  assert(hand >= 0 && hand < Hand::Count);
+  return controllerStates[hand].thumbstick;
+}
+
+//
+// アナログスティックのクリック状態を取得する
+//
+bool GgApp::OpenXR::getThumbstickClick(int hand) const
+{
+  assert(hand >= 0 && hand < Hand::Count);
+  return controllerStates[hand].thumbstickClick;
+}
+
+//
+// プライマリボタンの押下状態を取得する
+//
+bool GgApp::OpenXR::getPrimaryButton(int hand) const
+{
+  assert(hand >= 0 && hand < Hand::Count);
+  return controllerStates[hand].primaryButton;
+}
+
+//
+// セカンダリボタンの押下状態を取得する
+//
+bool GgApp::OpenXR::getSecondaryButton(int hand) const
+{
+  assert(hand >= 0 && hand < Hand::Count);
+  return controllerStates[hand].secondaryButton;
+}
+
+//
+// メニューボタンの押下状態を取得する
+//
+bool GgApp::OpenXR::getMenuButton(int hand) const
+{
+  assert(hand >= 0 && hand < Hand::Count);
+  return controllerStates[hand].menuButton;
+}
+
+//
+// コントローラーに振動を出力する
+//
+void GgApp::OpenXR::applyHapticVibration(int hand, float durationSeconds, float frequency, float amplitude)
+{
+  assert(hand >= 0 && hand < Hand::Count);
+  if (session == XR_NULL_HANDLE || hapticAction == XR_NULL_HANDLE) return;
+
+  XrHapticVibration vibration{ XR_TYPE_HAPTIC_VIBRATION };
+  vibration.duration = durationSeconds > 0.0f
+    ? static_cast<XrDuration>(static_cast<double>(durationSeconds) * 1.0e9)
+    : XR_MIN_HAPTIC_DURATION;
+  vibration.frequency = frequency;
+  vibration.amplitude = std::min(std::max(amplitude, 0.0f), 1.0f);
+
+  XrHapticActionInfo actionInfo{ XR_TYPE_HAPTIC_ACTION_INFO };
+  actionInfo.action = hapticAction;
+  actionInfo.subactionPath = handSubactionPath[hand];
+
+  xrWarn(instance, xrApplyHapticFeedback(session, &actionInfo,
+    reinterpret_cast<const XrHapticBaseHeader*>(&vibration)),
+    "Can't apply the haptic feedback");
+}
+
 #endif
 
 #if defined(_WIN32)
